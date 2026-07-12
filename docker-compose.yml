@@ -1,0 +1,41 @@
+# Personal Portfolio — orchestrazione one-click (Fase 0 scheletro)
+# Windows primary, Raspberry arm64 futura (build multi-arch, Fase 7).
+# `docker compose up` => backend + SQLite persistente. Metabase attivato in Fase 3.
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: pp-backend
+    env_file:
+      - path: .env
+        required: false   # one-click funziona anche senza .env (usa i default); copiare .env.example -> .env per personalizzare
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./data:/data           # DB canonico (FastAPI = unico writer)
+      - ./replica:/replica     # replica read-only per Metabase (ADR-0004)
+      - ./backups:/backups     # target backup locale (Fase 4)
+      - ./secrets:/secrets:ro  # Service Account key montata sola-lettura (ADR-0011)
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # --- Metabase: ATTIVATO in Fase 3. Versione PINNATA, mai latest (ADR-0004). ---
+  # metabase:
+  #   image: metabase/metabase:v0.50.30
+  #   container_name: pp-metabase
+  #   ports:
+  #     - "${METABASE_PORT:-3000}:3000"
+  #   volumes:
+  #     - ./replica:/replica:ro        # legge SOLO la replica, mai il DB live
+  #     - ./metabase-data:/metabase-data  # H2 metadati dashboard
+  #   environment:
+  #     MB_DB_FILE: /metabase-data/metabase.db
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - backend

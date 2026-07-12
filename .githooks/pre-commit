@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Personal Portfolio — pre-commit secret scanner (content-based, ADR-0011)
+# Blocca il commit se un file staged contiene marcatori di Service Account / chiave privata.
+# Criterio sul CONTENUTO, non sulla dimensione: non blocca package.json/tsconfig.json legittimi.
+set -euo pipefail
+
+patterns='private_key|client_email|auth_uri|token_uri|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+blocked=0
+
+# Solo file aggiunti/modificati staged (A=added, C=copied, M=modified)
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
+  # Legge il contenuto staged (indice), non il working tree
+  if git show ":$file" 2>/dev/null | grep -Eq "$patterns"; then
+    echo "BLOCKED: contenuto sospetto (secret) nel file staged -> $file"
+    blocked=1
+  fi
+done < <(git diff --cached --name-only --diff-filter=ACM)
+
+if [ "$blocked" -ne 0 ]; then
+  echo ""
+  echo "Commit annullato: rilevato contenuto tipo-secret."
+  echo "Le Service Account key NON vanno mai committate: fornirle a runtime via volume montato / .env."
+  echo "Dettagli: docs/SECURITY.md"
+  exit 1
+fi
+exit 0

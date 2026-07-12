@@ -1,0 +1,42 @@
+# === Secrets (ADR-0011) — MAI committare ===
+*service_account*.json
+credentials/
+secrets/*
+!secrets/.gitkeep
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+
+# === Dati / stato runtime (tieni la cartella, ignora il contenuto) ===
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/*
+!data/.gitkeep
+replica/*
+!replica/.gitkeep
+backups/*
+!backups/.gitkeep
+
+# === Python ===
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# === Node / React (Fase 5) ===
+node_modules/
+dist/
+.vite/
+
+# === OS / editor ===
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
