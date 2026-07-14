@@ -228,6 +228,57 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   (rollback-journal) rigenerato ad ogni `import_batch` completato — coerente con la sua natura di
   snapshot immutabile fino al prossimo import.
 
+## ADR-0018 — Backup: online backup API SQLite, Drive Service Account opzionale, retention, restore con conferma
+- Status: Accepted — Fase: F4 — Data: 2026-07-14
+- Contesto: F4 richiede dump SQLite + export `.xlsx` leggibile verso locale e Google
+  Drive (Service Account, ADR-0008), retention/rotazione, restore documentato e
+  testato. Ricerca best practice: `shutil.copy2` su un DB WAL live (come in ADR-0017)
+  richiede il workaround checkpoint+conversione journal_mode; l'online backup API di
+  `sqlite3` (`Connection.backup()`) è progettata per copiare un DB in uso senza
+  bloccarlo e senza quel workaround, producendo un file plain autonomo.
+- Decisione:
+  1. **Dump**: `sqlite3.Connection.backup()` (non `shutil.copy2`) per il file `.db`
+     di backup. ADR-0017 (checkpoint + `journal_mode=DELETE`) resta invariato e
+     specifico alla replica Metabase — non riusato qui, i due meccanismi restano
+     distinti perché risolvono esigenze diverse (replica persistente vs snapshot
+     puntuale).
+  2. **Export xlsx**: sheet flat unico, tutte le transazioni (expense+income),
+     colonne leggibili, via pandas/openpyxl. Naming accoppiato
+     `portfolio_backup_YYYYMMDD_HHMMSS.{db,xlsx}` in `/backups`.
+  3. **Drive upload**: `google-api-python-client` + `google-auth` (nuove dipendenze),
+     Service Account da `GOOGLE_SA_KEY_PATH` (già montata a runtime, mai nel repo,
+     ADR-0011). **Best-effort**: se la chiave manca o l'upload fallisce (rete,
+     permessi), il backup locale riesce comunque; l'errore è loggato e riportato
+     nella risposta endpoint, stesso pattern non-bloccante di
+     `refresh_read_only_replica()` (ADR-0004). Nessun crash dell'app se la Service
+     Account non è montata (deploy locale/single-dev, ADR-0009).
+  4. **Retention**: `BACKUP_RETENTION` coppie `.db`+`.xlsx` mantenute; rotazione
+     cancella le più vecchie sia in locale sia su Drive, stesso criterio
+     non-bloccante del punto 3.
+  5. **Restore**: `POST /backup/restore`, body `{filename, confirm: true}` —
+     `confirm` esplicito obbligatorio (sovrascrive il DB live, operazione
+     distruttiva). Legge solo da `/backups` locale (Drive = ridondanza off-site, non
+     sorgente di restore: la retention locale mantiene lo stesso set di file).
+     Procedura: `engine.dispose()` → overwrite `data/portfolio.db` → rimozione
+     side-file WAL residui → riapertura → `refresh_read_only_replica()` per
+     risincronizzare Metabase.
+  6. **Trigger**: pulsante manuale sempre (`POST /backup`); job opzionale
+     all'avvio via `BACKUP_ON_STARTUP` (già in `config.py` da F0), hook `lifespan`
+     FastAPI, best-effort (non blocca l'avvio app).
+  7. **Test**: nuova suite pytest `backend/tests/test_backup.py` (prima suite pytest
+     committata nel repo — F1-F3 verificate manualmente). Backup → svuota/corrompi
+     `transactions` → restore → verifica conteggi/somme tornano identici. Nessun
+     mock di rete necessario: Service Account assente nei test → percorso Drive
+     skippato per costruzione (punto 3).
+  8. **Fuori scope** (YAGNI): tabella `settings` DB per toggle runtime (env var
+     basta finché non c'è UI, F5); restore da Drive (ridondante con retention
+     locale); cifratura dump/xlsx (esposizione solo rete locale, ADR-0009).
+- Conseguenze: nessuna modifica di schema (nessuna Alembic revision per F4); due
+  nuove dipendenze runtime (`google-api-python-client`, `google-auth`) e due di
+  test (`pytest`, `httpx`); primo modulo del repo con test automatici, precedente
+  per le fasi successive. Rischio residuo accettato: restore non testato contro
+  backup provenienti da Drive (solo locali) — coerente con la scelta del punto 5.
+
 ## ADR-0016 — Versione Metabase pinnata reale: `v0.62.4` (specializza ADR-0004)
 - Status: Accepted — Fase: F3 (scaffolding) — Data: 2026-07-14
 - Contesto: ADR-0004 fissa la policy (replica read-only, immagine pinnata, mai `latest`) ma usa `v0.50.30`
