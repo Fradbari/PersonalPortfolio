@@ -26,7 +26,7 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
 ## Mappa fasi (dettaglio + stato vivo in docs/ARCHITECTURE.md)
 F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico (dry-run, dal 2026) ·
 F3 dashboard Metabase · F4 backup · F5 UI React · F6 AI · F7 Raspberry arm64.
-**Fase corrente: F3 (completata) → prossima F4.**
+**Fase corrente: F4 (completata) → prossima F5.**
 
 ## Sottoagenti di progetto (`.claude/agents/`)
 Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.
