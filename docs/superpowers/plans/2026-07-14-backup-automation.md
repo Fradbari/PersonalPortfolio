@@ -790,18 +790,22 @@ def run_backup() -> dict:
     drive_uploaded = False
     drive_error: str | None = None
     drive_deleted: list[str] = []
-    service = get_drive_service(settings.google_sa_key_path)
-    if service is None:
-        drive_error = "Service Account non montata: upload Drive skippato."
-    else:
-        try:
+    try:
+        # get_drive_service() e' dentro il try: una Service Account key presente
+        # ma malformata/corrotta solleva un'eccezione da from_service_account_file()
+        # (non solo "file assente" - quello ritorna None senza eccezione) e deve
+        # restare best-effort come il resto del blocco Drive (ADR-0004/ADR-0018).
+        service = get_drive_service(settings.google_sa_key_path)
+        if service is None:
+            drive_error = "Service Account non montata: upload Drive skippato."
+        else:
             upload_file(service, result.db_path, settings.gdrive_backup_folder_id)
             upload_file(service, result.xlsx_path, settings.gdrive_backup_folder_id)
             drive_uploaded = True
             drive_deleted = apply_drive_retention(service, settings.gdrive_backup_folder_id, settings.backup_retention)
-        except Exception as exc:  # rete/permessi Drive: best-effort (ADR-0004/ADR-0018)
-            drive_error = str(exc)
-            logger.warning("Upload/retention Drive falliti (non bloccante): %s", exc)
+    except Exception as exc:  # SA malformata/rete/permessi Drive: best-effort (ADR-0004/ADR-0018)
+        drive_error = str(exc)
+        logger.warning("Backup Drive fallito (non bloccante): %s", exc)
 
     local_deleted = apply_local_retention(settings.backup_dir, settings.backup_retention)
 
