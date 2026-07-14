@@ -149,3 +149,58 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   discutere i marcatori del hook stesso senza bloccarsi da soli. Rischio residuo accettato: un secret
   reale incollato per errore in un file `.md` sotto `docs/` non verrebbe bloccato — trade-off ok per
   progetto solo-dev (N-NF4), rischio basso data la natura scritta-a-mano di questi file.
+
+## ADR-0015 — Adapter master sheet storico: un-pivot, righe "Entrate", quadratura dry-run
+- Status: Accepted — Fase: F2 — Data: 2026-07-14
+- Contesto: ispezionato file reale (`Spese - V.2.xlsx`, tab `2026`, 38 colonne, righe 2-395 dati).
+  Struttura più ricca di quanto assunto in ARCHITECTURE.md §3 Fase 2:
+  - Righe spesa: col1 (`Data:`) = data reale; colonne categoria (`Alimentari`…`Finance -`, indici 2-19,
+    dinamici = intervallo header tra `Data:` e `Commenti puliti` esclusi) possono essere valorizzate
+    **più di una per riga** (stesso giorno, più categorie); `Commenti puliti` = commento condiviso.
+  - Righe reddito: col1 = **stringa letterale `"Entrate"`** (non una data). Importo sempre in colonna 2
+    per posizione (NON significa categoria "Alimentari"); categoria reddito reale = valore di
+    `Commenti puliti` (`Stipendio`, `Finance +`, `Regalo`, `Altro`, …). **Nessun giorno preciso
+    disponibile** — solo il mese è deducibile dal blocco in cui la riga si trova.
+  - Righe `Totale %`: aggregato di chiusura mese. Colonne 2-19 = percentuali per categoria (possono
+    essere `#DIV/0!` se `Spese` mese = 0 → ignorate). Colonne `Totale cumulato:`, `Spese`, `Differenza:`,
+    `Accumulo totale`, `Trattenuta globali in busta paga ` = valori EUR mensili aggregati.
+  - Blocchi Gennaio-Giugno: nessun marcatore di mese esplicito, il mese si deduce dalla prima riga-data
+    del blocco. Blocchi Luglio-Dicembre: marcatore esplicito (riga con col1 = nome mese italiano, es.
+    `Luglio`), preceduto/seguito da righe vuote.
+  - Tab da considerare: solo `str(IMPORT_MIN_YEAR)` cioè `"2026"` (ADR-0012). Tab `2024`/`2025` e i tab
+    di lavoro manuale `Copia qui le spese`/`Copia qui le entrate`/`PRENDI I VALORI DA QUI` ignorati (non
+    sono dati, sono strumenti dell'utente per compilare il foglio a mano).
+  - Utente consultato su convenzione data per righe reddito (nessun giorno recuperabile dal foglio):
+    scelta **ultimo giorno del mese** del blocco.
+- Decisione:
+  1. **Colonne categoria**: intervallo dinamico nell'header tra `Data:` (esclusa) e `Commenti puliti`
+     (esclusa) — per nome, non indice fisso, robusto a riordini.
+  2. **Righe spesa** (col1 = datetime): una `Transaction` per ogni colonna categoria non-nulla/non-zero
+     nella riga; `type=expense`; `comment` = valore condiviso di `Commenti puliti` applicato a tutte le
+     transazioni generate dalla riga (limite noto della fonte: comment non disambiguabile per categoria
+     se più di una valorizzata — accettato, non risolvibile senza perdere dati).
+  3. **Righe reddito** (col1 == stringa `"Entrate"`): una `Transaction` con `amount` = valore colonna 2
+     (posizionale), `category_raw` = valore di `Commenti puliti`, `type=income`,
+     **`date` = ultimo giorno del mese corrente** (calcolato dal mese tracciato, vedi punto 5).
+  4. **Righe `Totale %`**: mai importate come transazione. Le colonne EUR (`Spese`, `Differenza:`,
+     `Totale cumulato:`, `Accumulo totale`, `Trattenuta...`) vengono catturate come riferimento mensile
+     per la quadratura nel report dry-run (punto 6). Colonne percentuale (incluso `#DIV/0!`) ignorate.
+  5. **Tracciamento mese corrente** (per datare le righe `Entrate` e associare i riferimenti `Totale %`):
+     aggiornato da (a) ogni riga-data reale incontrata (year/month della data stessa, year sempre
+     `IMPORT_MIN_YEAR` per questo tab) o (b) riga con nome mese italiano letterale. Riga `Entrate`
+     incontrata senza mese noto (blocco senza alcuna riga-data precedente né marcatore) → **scartata**
+     con motivo esplicito nel report dry-run, per revisione manuale — non blocca l'intero import.
+  6. **Dry-run** (R1, ARCHITECTURE.md): import in **DB temporaneo effimero** (SQLite in-memory o file
+     temp, schema creato con `Base.metadata.create_all` sui modelli correnti — non è una modifica dello
+     schema canonico, nessuna revision Alembic necessaria qui), stessa pipeline hash/reconciliation di F1
+     (ADR-0005/0006/0013) riusata as-is. **Mai** tocca `data/portfolio.db` reale. Report: N importate,
+     righe scartate con motivo, somma mensile per categoria confrontata con `Spese` del foglio
+     (quadratura), categorie finite in pending. Solo dopo validazione manuale dell'operatore contro il
+     foglio originale → endpoint separato per l'import reale su DB live (stesso schema di F1: ImportBatch,
+     replica atomica).
+  7. **Conto**: sempre `principale` per tutto lo storico (ADR-0012, invariato).
+- Conseguenze: adapter più complesso di quanto pianificato inizialmente in ARCHITECTURE.md, ma fedele
+  alla struttura reale del foglio. Convenzione data reddito (fine mese) è un'approssimazione nota e
+  accettata dall'utente — impatta solo il giorno, non il mese/importo (quadratura mensile invariata).
+  Righe `Entrate` senza mese deducibile sono un edge case gestito come scarto segnalato, non come errore
+  bloccante, coerente con lo spirito "dry-run + revisione manuale" di R1.
