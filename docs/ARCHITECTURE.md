@@ -213,7 +213,7 @@ Artefatti da creare e **mantenere sempre allineati** (regola: chiudere ogni sess
 |------|-------|-----------------|
 | F0 Fondazione/sicurezza/ADR | ☑ fatto (2026-07-12) | Scaffolding completo; compose valido; pre-commit hook blocca secret e lascia passare file legittimi; Alembic rev 0001 applicata (5 tabelle base); sintassi backend OK. 12 ADR scritti. 4 sottoagenti creati. |
 | F1 Ingestion My Finance | ☑ fatto (2026-07-13) | Migrazione 0002 (`category_raw` + `category_pending`, schema-agent). Parser Spese/Entrate per nome colonna (Bonifici ignorato), dedup hash batch, category/account reconciliation, `POST /import/my-finance`, `GET/POST /categories(/pending)`, replica atomica best-effort (ADR-0004). ADR-0013 scritto. Verificato E2E con export reale (`ru.innim.my_finance`): 1° upload 51 importate (46 spese + 5 entrate) / 0 duplicati / 18 categorie pending; 2° upload stesso file → 0 importate / 51 duplicati (idempotenza); resolve pending "Alimentari" → backfill 10 transazioni. Verifica indipendente (fuori dal sottoagente) con TestClient: numeri combacianti. |
-| F2 Migrazione storico (dry-run) | ◐ in corso (2026-07-14) | Adapter un-pivot (`master_sheet_parser.py`, ADR-0015) + `POST /import/historical/dry-run` (DB effimero in-memory) + `POST /import/historical/commit` (DB live). Struttura reale del foglio più complessa del previsto: righe `Entrate` senza giorno (data=fine mese, confermato con utente), righe `Totale %` come riferimento quadratura. Dry-run verificato su file reale (`Spese - V.2.xlsx` tab 2026, indipendentemente ri-testato): would_import=331 (309 spese + 22 entrate), 222 scartate (204 vuote, 12 Totale%, 6 marcatori mese), 20 categorie pending, **quadratura mensile: diff=0.0 su tutti i 12 mesi**. Commit su DB live NON ancora eseguito — in attesa di validazione manuale dell'utente contro il foglio originale (R1). |
+| F2 Migrazione storico (dry-run) | ☑ fatto (2026-07-14) | Adapter un-pivot (`master_sheet_parser.py`, ADR-0015) + `POST /import/historical/dry-run` (DB effimero) + `POST /import/historical/commit` (DB live). Dry-run verificato su file reale: would_import=331 (309 spese + 22 entrate), 222 scartate (204 vuote, 12 Totale%, 6 marcatori mese), 20 categorie pending, quadratura mensile diff=0.0 su tutti i 12 mesi. **Validato manualmente dall'utente contro il foglio originale (R1) → commit reale eseguito**: `import_batch_id=1`, 331 transazioni su `data/portfolio.db`. Verifica indipendente via SQL diretto: `PRAGMA integrity_check`=ok, 331 transazioni (309 expense/9937.70€ + 22 income/19497.14€), somme mensili identiche al dry-run, 331 hash_dedup distinti (0 collisioni), conto unico `principale`, replica atomica creata (`replica/portfolio_replica.db`, ADR-0004). Archiviazione del foglio Google originale: passo manuale dell'utente (in corso, fuori dallo scope del codice). |
 | F3 Dashboard Metabase | ☐ da fare | — |
 | F4 Backup automatico | ☐ da fare | — |
 | F5 UI React | ☐ da fare | — |
@@ -228,8 +228,8 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
-Fase corrente: F2 in corso — dry-run storico pronto/verificato (quadratura OK), in attesa di
-validazione manuale utente + commit su DB live (F1 completata 2026-07-13).   ← AGGIORNARE
+Fase corrente: F3 (F2 completata e commit reale verificato il 2026-07-14).   ← AGGIORNARE
+Sottoagente da attivare: dashboard-agent (Metabase, replica read-only, ADR-0004).
 Regole: no schema change senza alembic revision; no secret committato; dubbi → chiedi.
 Ciclo fase: best practice → sottoagente dominio → ADR in DECISIONS.md → implementa →
 verifica → aggiorna Stato avanzamento + CLAUDE.md + questa riga "Fase corrente".

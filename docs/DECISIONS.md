@@ -204,3 +204,25 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   accettata dall'utente — impatta solo il giorno, non il mese/importo (quadratura mensile invariata).
   Righe `Entrate` senza mese deducibile sono un edge case gestito come scarto segnalato, non come errore
   bloccante, coerente con lo spirito "dry-run + revisione manuale" di R1.
+
+## ADR-0016 — Versione Metabase pinnata reale: `v0.62.4` (specializza ADR-0004)
+- Status: Accepted — Fase: F3 (scaffolding) — Data: 2026-07-14
+- Contesto: ADR-0004 fissa la policy (replica read-only, immagine pinnata, mai `latest`) ma usa `v0.50.30`
+  come *placeholder* di esempio, non una versione reale verificata. Serve una versione concreta per
+  scrivere il blocco `metabase` in `docker-compose.yml`, e verificare supporto multi-arch in vista di F7
+  (Raspberry Pi arm64). Interrogato Docker Hub (`hub.docker.com/v2/repositories/metabase/metabase/tags`)
+  in data 2026-07-14: linea `v0.63.x` è ancora in **beta** (tag `v0.63.0.x`/`-beta`); ultima release
+  **stabile** è `v0.62.4` (pubblicata 2026-07-08). Ogni tag ispezionato (`v0.62.4`, `v0.61.7`, `v0.60.12`,
+  `v0.59.16`, `v0.58.19`, ecc.) espone manifest **multi-arch** con immagini sia `linux/amd64` sia
+  `linux/arm64` (confermato via campo `architecture` nei manifest delle immagini del tag) — nessun rischio
+  noto di incompatibilità arm64 per F7. Immagine pesa ~763 MB (layer amd64/arm64 comparabili): possibile
+  onere su Raspberry Pi in termini di RAM/CPU a runtime (JVM), ma non di *build/pull* multi-arch.
+- Decisione: pinnare `metabase/metabase:v0.62.4` (non `v0.50.30`, non `latest`, non linee beta) nel
+  servizio `metabase` di `docker-compose.yml`. Nessuna scelta di skip Metabase in questa sessione: il
+  peso reale su Raspberry va misurato empiricamente in F7 (nota di rischio, non decisione — l'alternativa
+  UI React resta aperta come da ADR-0004 se il footprint risulta eccessivo). Aggiornamento immagine futuro
+  segue comunque la policy di ADR-0004 (backup preventivo + lettura changelog prima di bump di versione).
+- Conseguenze: `docker-compose.yml` ha un blocco `metabase` concreto e verificabile (`docker compose config`
+  validato senza errori in questa sessione); nessuna ambiguità residua sul placeholder di ADR-0004. Rischio
+  aperto per F7: verificare a runtime su hardware reale se `v0.62.4` (o la patch corrente a quel momento)
+  è sostenibile su Raspberry Pi; se no, seguire l'alternativa già prevista (skip Metabase, anticipare F5).
