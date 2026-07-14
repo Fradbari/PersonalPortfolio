@@ -1,5 +1,6 @@
 """FastAPI app — scheletro Fase 0 + ingestion (Fase 1/2) + backup (Fase 4)."""
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,13 +11,17 @@ from app.routers import backup, categories, imports
 logger = logging.getLogger(__name__)
 
 
+def _run_startup_backup() -> None:
+    try:
+        backup.run_backup()
+    except Exception as exc:  # best-effort: non deve bloccare l'avvio (ADR-0018 punto 6)
+        logger.warning("Backup all'avvio fallito (non bloccante): %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.backup_on_startup:
-        try:
-            backup.run_backup()
-        except Exception as exc:  # best-effort: non deve bloccare l'avvio (ADR-0018 punto 6)
-            logger.warning("Backup all'avvio fallito (non bloccante): %s", exc)
+        threading.Thread(target=_run_startup_backup, daemon=True).start()
     yield
 
 

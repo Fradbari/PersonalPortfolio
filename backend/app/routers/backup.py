@@ -10,7 +10,7 @@ import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.backup import apply_local_retention, create_backup, list_local_backups, restore_from_backup
+from app.backup import BACKUP_PREFIX, apply_local_retention, create_backup, list_local_backups, restore_from_backup
 from app.config import settings
 from app.db import engine, refresh_read_only_replica
 from app.drive import apply_drive_retention, get_drive_service, upload_file
@@ -83,7 +83,7 @@ def restore(payload: RestoreRequest):
     # e al join, cosi' il file risolto non puo' mai uscire da settings.backup_dir
     # (path traversal, trovato in review Task 4).
     filename = os.path.basename(payload.filename)
-    if not filename.startswith("portfolio_backup_") or not filename.endswith(".db"):
+    if not filename.startswith(BACKUP_PREFIX) or not filename.endswith(".db"):
         raise HTTPException(status_code=400, detail="filename atteso: portfolio_backup_YYYYMMDD_HHMMSS.db")
 
     backup_dir_abs = os.path.abspath(settings.backup_dir)
@@ -101,4 +101,4 @@ def restore(payload: RestoreRequest):
     except Exception as exc:  # replica Metabase: best-effort (ADR-0004)
         logger.warning("Replica read-only non aggiornata dopo restore (non bloccante): %s", exc)
 
-    return {"restored_from": payload.filename}
+    return {"restored_from": filename}
