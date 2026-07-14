@@ -839,10 +839,20 @@ class RestoreRequest(BaseModel):
 def restore(payload: RestoreRequest):
     if not payload.confirm:
         raise HTTPException(status_code=400, detail="Restore richiede 'confirm: true' (operazione distruttiva, ADR-0018).")
-    if not payload.filename.startswith("portfolio_backup_") or not payload.filename.endswith(".db"):
+
+    # os.path.basename() PRIMA della validazione: neutralizza qualunque componente di
+    # path (".." o separatori) in payload.filename prima che partecipi al pattern-check
+    # e al join, cosi' il file risolto non puo' mai uscire da settings.backup_dir
+    # (path traversal, trovato in review Task 4).
+    filename = os.path.basename(payload.filename)
+    if not filename.startswith("portfolio_backup_") or not filename.endswith(".db"):
         raise HTTPException(status_code=400, detail="filename atteso: portfolio_backup_YYYYMMDD_HHMMSS.db")
 
-    backup_db_path = os.path.join(settings.backup_dir, payload.filename)
+    backup_dir_abs = os.path.abspath(settings.backup_dir)
+    backup_db_path = os.path.abspath(os.path.join(backup_dir_abs, filename))
+    if os.path.dirname(backup_db_path) != backup_dir_abs:
+        raise HTTPException(status_code=400, detail="filename atteso: portfolio_backup_YYYYMMDD_HHMMSS.db")
+
     try:
         restore_from_backup(engine, backup_db_path, settings.db_path)
     except FileNotFoundError as exc:
