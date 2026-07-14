@@ -212,7 +212,7 @@ Artefatti da creare e **mantenere sempre allineati** (regola: chiudere ogni sess
 | Fase | Stato | Note / evidenze |
 |------|-------|-----------------|
 | F0 Fondazione/sicurezza/ADR | ☑ fatto (2026-07-12) | Scaffolding completo; compose valido; pre-commit hook blocca secret e lascia passare file legittimi; Alembic rev 0001 applicata (5 tabelle base); sintassi backend OK. 12 ADR scritti. 4 sottoagenti creati. |
-| F1 Ingestion My Finance | ☐ da fare | — |
+| F1 Ingestion My Finance | ☑ fatto (2026-07-13) | Migrazione 0002 (`category_raw` + `category_pending`, schema-agent). Parser Spese/Entrate per nome colonna (Bonifici ignorato), dedup hash batch, category/account reconciliation, `POST /import/my-finance`, `GET/POST /categories(/pending)`, replica atomica best-effort (ADR-0004). ADR-0013 scritto. Verificato E2E con export reale (`ru.innim.my_finance`): 1° upload 51 importate (46 spese + 5 entrate) / 0 duplicati / 18 categorie pending; 2° upload stesso file → 0 importate / 51 duplicati (idempotenza); resolve pending "Alimentari" → backfill 10 transazioni. Verifica indipendente (fuori dal sottoagente) con TestClient: numeri combacianti. |
 | F2 Migrazione storico (dry-run) | ☐ da fare | — |
 | F3 Dashboard Metabase | ☐ da fare | — |
 | F4 Backup automatico | ☐ da fare | — |
@@ -228,7 +228,7 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
-Fase corrente: F1 (F0 completata e verificata il 2026-07-12).   ← AGGIORNARE
+Fase corrente: F2 (F1 completata e verificata il 2026-07-13).   ← AGGIORNARE
 Regole: no schema change senza alembic revision; no secret committato; dubbi → chiedi.
 Ciclo fase: best practice → sottoagente dominio → ADR in DECISIONS.md → implementa →
 verifica → aggiorna Stato avanzamento + CLAUDE.md + questa riga "Fase corrente".

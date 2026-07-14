@@ -104,3 +104,48 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
 - Decisione: import (incluso dry-run) limitato a `IMPORT_MIN_YEAR=2026`. Tutte le transazioni storiche
   assegnate al conto `principale` (lo storico wide non ha dettaglio conto).
 - Conseguenze: dataset iniziale coerente e circoscritto; tab pre-2026 non importati.
+
+## ADR-0013 — Parsing export My Finance: colonna importo, layout foglio, `category_raw`
+- Status: Accepted — Fase: F1 — Data: 2026-07-13
+- Contesto: ispezionato export reale (`2026_07_01_13_56_18_010808.xlsx`, sheet Spese/Entrate/Bonifici).
+  Riga 1 = titolo periodo (non dato), riga 2 = header, dati da riga 3. Colonne importo multi-valuta:
+  `Importo in valuta predefinita` / `Valuta predefinita`, `Importo in valuta del conto` / `Valuta conto`,
+  `Importo in valuta della transazione` / `Valuta transazione` (quest'ultime vuote se transazione già in
+  valuta predefinita). ADR-0005 dice hash su "category"/"account" ma non specifica se nome raw o id canonico.
+- Decisione:
+  1. **Importo canonico** = `Importo in valuta predefinita` + `Valuta predefinita` (coerente su tutti i
+     conti, indipendente da valuta locale del conto/transazione). Le altre colonne importo ignorate in F1.
+  2. **Parsing sheet**: skip riga 1 (titolo), riga 2 = header, righe successive = dati; righe con
+     `Data e ora` vuota scartate (contate in `import_batches` come righe non importate).
+  3. Sheet `Bonifici` ignorato (già ADR-0007).
+  4. **Nuova colonna `transactions.category_raw`** (nome categoria as-is dalla fonte, immutabile) —
+     campo stabile usato nell'hash dedup al posto di `category_id` (che è nullable/mutabile via backfill
+     della reconciliation queue, ADR-0006). `hash_dedup` = hash di
+     `(date@giorno, amount, category_raw, account, type)`. Chiarisce/implementa ADR-0005: "category"
+     nell'hash = nome raw sorgente, non id canonico.
+  5. Nuova tabella `category_pending`: `(id, source, source_name, created_at)`, unique su
+     `(source, source_name)`. Alla risoluzione (assegnazione mapping da UI) → crea riga in
+     `category_map`, backfill `transactions.category_id` dove `category_raw` combacia e `category_id`
+     è NULL, poi elimina la riga pending (nessuno storico di stato: risolta = non più in coda).
+- Conseguenze: hash stabile anche prima che la categoria venga mappata; backfill non tocca l'hash
+  (mai ricalcolato) quindi nessun rischio di duplicati post-riconciliazione. Migrazione Alembic dedicata
+  (schema-agent) per `category_raw` + `category_pending`.
+
+## ADR-0014 — Pre-commit hook: esclude `docs/*.md` dal content-scan (falso positivo ADR-0011)
+- Status: Accepted — Fase: F2 — Data: 2026-07-14
+- Contesto: hook ha bloccato il commit su `docs/ARCHITECTURE.md` e `docs/DECISIONS.md`. Causa: questi
+  file *citano letteralmente* i marcatori del hook (`private_key`, `client_email`, ecc., in ADR-0011 e
+  nella sezione C3) come testo esplicativo di cosa il hook cerca — non un secret reale. `docs/SECURITY.md`
+  contiene gli stessi marcatori da F0 (mai bloccato finora perché non ri-staged in un commit successivo
+  all'attivazione del hook). Stessa causa strutturale anche per `.githooks/pre-commit` stesso: il file
+  *definisce* i marcatori nella propria variabile `patterns=`, quindi si auto-bloccherebbe ogni volta
+  che viene modificato/committato.
+- Decisione: `.githooks/pre-commit` esclude dal grep (a) i file che matchano `docs/*.md` (unica estensione
+  presente in `docs/`) e (b) se stesso (`.githooks/pre-commit`). Criterio pattern content-based
+  **invariato** per tutti gli altri file (codice, config, `.env`, JSON, ecc.). Motivazione: i secret reali
+  (Service Account JSON, API key) non transitano mai per markdown scritto a mano né per lo script del hook
+  — vivono solo in `secrets/`/`.env`, già gitignored e già fuori dal content-scan per estensione/percorso.
+- Conseguenze: elimina il falso positivo ricorrente sui documenti di governance, che devono poter
+  discutere i marcatori del hook stesso senza bloccarsi da soli. Rischio residuo accettato: un secret
+  reale incollato per errore in un file `.md` sotto `docs/` non verrebbe bloccato — trade-off ok per
+  progetto solo-dev (N-NF4), rischio basso data la natura scritta-a-mano di questi file.

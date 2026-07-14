@@ -40,3 +40,6 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# === Dati personali reali usati per test manuali (mai committare) ===
+reference-tobedelated/

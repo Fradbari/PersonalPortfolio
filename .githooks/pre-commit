@@ -10,6 +10,14 @@ blocked=0
 # Solo file aggiunti/modificati staged (A=added, C=copied, M=modified)
 while IFS= read -r file; do
   [ -z "$file" ] && continue
+  # docs/*.md sono doc di governance che citano letteralmente i marcatori sopra come
+  # testo esplicativo (ADR-0011/ADR-0014) -> falso positivo strutturale. I secret reali
+  # non transitano mai per markdown scritto a mano (vivono solo in secrets/, gitignored).
+  # .githooks/pre-commit definisce i marcatori stessi nella propria regex -> si
+  # auto-triggererebbe sempre (falso positivo strutturale, ADR-0014).
+  case "$file" in
+    docs/*.md|.githooks/pre-commit) continue ;;
+  esac
   # Legge il contenuto staged (indice), non il working tree
   if git show ":$file" 2>/dev/null | grep -Eq "$patterns"; then
     echo "BLOCKED: contenuto sospetto (secret) nel file staged -> $file"

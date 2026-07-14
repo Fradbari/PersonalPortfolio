@@ -1,7 +1,8 @@
-"""Schema canonico base (Fase 0).
+"""Schema canonico base (Fase 0) + estensioni per fase (ADR-0003).
 
-NOTA: `category_pending` (F1) e `settings` (F4) sono aggiunte in fasi successive
-tramite Alembic revision dedicate (ADR-0003), non qui.
+NOTA: `settings` (F4) sarà aggiunta in una fase successiva tramite Alembic
+revision dedicata, non qui. `category_pending` e `transactions.category_raw`
+sono state aggiunte in F1 (revision 0002, ADR-0013).
 """
 from datetime import datetime
 
@@ -38,6 +39,22 @@ class CategoryMap(Base):
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
 
 
+class CategoryPending(Base):
+    """Coda riconciliazione categorie ignote (ADR-0006/ADR-0013).
+
+    Risolta = rimossa (nessuno storico di stato): l'assegnazione crea la riga
+    in `category_map`, fa backfill di `transactions.category_id` dove
+    `category_raw` combacia e `category_id` è NULL, poi elimina la riga qui.
+    """
+    __tablename__ = "category_pending"
+    __table_args__ = (UniqueConstraint("source", "source_name", name="uq_pending_source_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String, nullable=False)       # master_sheet | my_finance
+    source_name: Mapped[str] = mapped_column(String, nullable=False)  # nome categoria as-is dalla fonte
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Account(Base):
     """Conto importato as-is (ADR-0006). Rinominabile via display_name."""
     __tablename__ = "accounts"
@@ -65,7 +82,7 @@ class Transaction(Base):
     """Transazione canonica a livello riga.
 
     `type` a 2 valori: bonifici esclusi (ADR-0007).
-    `hash_dedup` = hash di (date@giorno, amount, category, account, type) — ADR-0005.
+    `hash_dedup` = hash di (date@giorno, amount, category_raw, account, type) — ADR-0005/ADR-0013.
     """
     __tablename__ = "transactions"
     __table_args__ = (
@@ -78,6 +95,7 @@ class Transaction(Base):
     currency: Mapped[str] = mapped_column(String, default="EUR")
     type: Mapped[str] = mapped_column(String, nullable=False)  # expense | income
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
+    category_raw: Mapped[str] = mapped_column(String, nullable=False)  # nome as-is dalla fonte: stabile, nell'hash (ADR-0013)
     account: Mapped[str] = mapped_column(String, default="principale")
     comment: Mapped[str | None] = mapped_column(String, nullable=True)  # editabile: NON nell'hash
     tag: Mapped[str | None] = mapped_column(String, nullable=True)      # editabile: NON nell'hash
