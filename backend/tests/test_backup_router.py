@@ -98,3 +98,22 @@ def test_restore_missing_file_returns_404(tmp_path, monkeypatch):
     resp = client.post("/backup/restore", json={"filename": "portfolio_backup_00000000_000000.db", "confirm": True})
 
     assert resp.status_code == 404
+
+
+def test_restore_rejects_path_traversal_filename(tmp_path, monkeypatch):
+    client, engine = _build_test_app(tmp_path, monkeypatch)
+
+    # Passa il check "naif" startswith/endswith (inizia con "portfolio_backup_",
+    # finisce con ".db") ma contiene componenti ".." che, sotto il vecchio codice
+    # (os.path.join senza basename/contenimento), farebbero uscire il path risolto
+    # da settings.backup_dir (path traversal, trovato in review Task 4).
+    traversal_filename = "portfolio_backup_../../../../secrets/service_account.json.db"
+
+    resp = client.post("/backup/restore", json={"filename": traversal_filename, "confirm": True})
+
+    assert resp.status_code == 400
+    # La transazione seedata in _build_test_app deve restare intatta: nessun restore
+    # (parziale o riuscito) da un file fuori da backup_dir e' avvenuto.
+    Session = sessionmaker(bind=engine, future=True)
+    with Session() as session:
+        assert session.query(Transaction).count() == 1
