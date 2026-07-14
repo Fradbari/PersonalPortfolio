@@ -205,6 +205,29 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   Righe `Entrate` senza mese deducibile sono un edge case gestito come scarto segnalato, non come errore
   bloccante, coerente con lo spirito "dry-run + revisione manuale" di R1.
 
+## ADR-0017 — Replica read-only: conversione WAL→DELETE post-copia (specializza ADR-0004)
+- Status: Accepted — Fase: F3 — Data: 2026-07-14
+- Contesto: durante il setup Metabase (F3), la connessione SQLite alla replica (mount
+  `./replica:/replica:ro`, ADR-0004) falliva con `[SQLITE_CANTOPEN] Unable to open the
+  database file`. Causa verificata: il DB live è in `journal_mode=WAL` (ADR-0001); `shutil.copy2`
+  copia il file principale mantenendo l'intestazione WAL nel file copiato. Aprire un DB in
+  WAL richiede poter creare/accedere ai file ausiliari `-wal`/`-shm` **anche per sole letture**
+  (coordinamento wal-index) — impossibile su un mount realmente read-only. Confermato
+  empiricamente: `touch` su `/replica` dentro il container Metabase → `Read-only file system`;
+  stesso path con SQLite in WAL → `CANTOPEN`.
+- Decisione: la generazione della replica (`app/db.py`, funzione `refresh_read_only_replica()`,
+  usata dai due call site in `app/routers/imports.py` al posto di `shutil.copy2` diretto) esegue,
+  nell'ordine: (1) `PRAGMA wal_checkpoint(TRUNCATE)` sulla connessione al DB **live** (fonde il
+  WAL nel file principale, il live DB resta in WAL per gli scrittori futuri — invariato rispetto
+  ad ADR-0001); (2) `shutil.copy2` del solo file principale (coerente point-in-time, WAL garantisce
+  che al checkpoint il file rifletta uno stato committed); (3) apertura della **copia** (non il
+  live) e `PRAGMA journal_mode=DELETE` — la replica non necessita più di `-wal`/`-shm` ed è apribile
+  in sola lettura su mount realmente read-only. Nessuna modifica di schema (nessuna revision Alembic).
+- Conseguenze: fix minimo, isolato alla funzione di replica; nessun impatto sul DB live (rimane
+  WAL, unico writer FastAPI, ADR-0001 invariato). La replica è ora un file SQLite "semplice"
+  (rollback-journal) rigenerato ad ogni `import_batch` completato — coerente con la sua natura di
+  snapshot immutabile fino al prossimo import.
+
 ## ADR-0016 — Versione Metabase pinnata reale: `v0.62.4` (specializza ADR-0004)
 - Status: Accepted — Fase: F3 (scaffolding) — Data: 2026-07-14
 - Contesto: ADR-0004 fissa la policy (replica read-only, immagine pinnata, mai `latest`) ma usa `v0.50.30`

@@ -14,14 +14,13 @@ from __future__ import annotations
 
 import io
 import logging
-import shutil
+import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import settings
-from app.db import Base, get_session
+from app.db import Base, get_session, refresh_read_only_replica
 from app.ingestion.master_sheet_parser import parse_master_sheet_xlsx
 from app.ingestion.my_finance_parser import parse_my_finance_xlsx
 from app.ingestion.reconciliation import compute_hash_dedup, get_or_create_account, resolve_category
@@ -120,8 +119,8 @@ def import_my_finance(file: UploadFile, session: Session = Depends(get_session))
     session.commit()
 
     try:
-        shutil.copy2(settings.db_path, settings.replica_path)
-    except OSError as exc:
+        refresh_read_only_replica()
+    except (OSError, sqlite3.Error) as exc:
         logger.warning("Replica read-only non aggiornata (ADR-0004, non bloccante): %s", exc)
 
     return {
@@ -303,8 +302,8 @@ def import_historical_commit(file: UploadFile, session: Session = Depends(get_se
     session.commit()
 
     try:
-        shutil.copy2(settings.db_path, settings.replica_path)
-    except OSError as exc:
+        refresh_read_only_replica()
+    except (OSError, sqlite3.Error) as exc:
         logger.warning("Replica read-only non aggiornata (ADR-0004, non bloccante): %s", exc)
 
     return {

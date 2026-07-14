@@ -1,4 +1,7 @@
 """Engine SQLite in WAL mode (ADR-0001). FastAPI = unico writer."""
+import shutil
+import sqlite3
+
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -32,3 +35,21 @@ def get_session():
         yield session
     finally:
         session.close()
+
+
+def refresh_read_only_replica() -> None:
+    """Rigenera la replica read-only per Metabase (ADR-0004, ADR-0017).
+
+    Un DB in WAL richiede creare/aprire i file ausiliari `-wal`/`-shm` anche in lettura,
+    impossibile su un mount realmente read-only (SQLITE_CANTOPEN). Per questo la copia
+    viene convertita a journal_mode=DELETE dopo lo checkpoint, cosi' e' apribile senza
+    side file.
+    """
+    with engine.connect() as conn:
+        conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE);")
+    shutil.copy2(settings.db_path, settings.replica_path)
+    replica_conn = sqlite3.connect(settings.replica_path)
+    try:
+        replica_conn.execute("PRAGMA journal_mode=DELETE;")
+    finally:
+        replica_conn.close()
