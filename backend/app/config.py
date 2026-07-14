@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     # Backup (Fase 4)
     backup_on_startup: bool = False
+    backup_dir: str = "/backups"
     google_sa_key_path: str = "/secrets/service_account.json"
     gdrive_backup_folder_id: str = ""
     backup_retention: int = 12
