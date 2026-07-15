@@ -279,6 +279,77 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   per le fasi successive. Rischio residuo accettato: restore non testato contro
   backup provenienti da Drive (solo locali) — coerente con la scelta del punto 5.
 
+## ADR-0019 — UI React (F5): scope read+write pieno, single-container, stack Vite+TS+TanStack Query+Tailwind/shadcn+Recharts, Metabase invariata
+
+- Status: Accepted — Fase: F5 — Data: 2026-07-15
+- Contesto: ARCHITECTURE.md §Fase 5 lasciava aperti tre punti: (a) React
+  affianca o sostituisce Metabase; (b) topologia deploy (container unico o
+  separato); (c) stack frontend concreto. Utente consultato su tutti e tre.
+  Verificato lo stato attuale dei router FastAPI (`imports.py`,
+  `categories.py`, `backup.py`): **nessun endpoint** copre oggi lettura
+  aggregata (`/insights`), CRUD transazioni o rename conti (N-F6) — mancano
+  interamente, non solo lato UI.
+- Decisione:
+  1. **Scope**: React copre **sia lettura sia scrittura** in modo completo
+     (dashboard/insight equivalenti a Metabase + edit/delete transazioni +
+     resolve category pending + rename conti + trigger backup/restore).
+     Metabase **resta attiva in parallelo, invariata** (ADR-0004 non
+     superato) — non è un affiancamento parziale né una sostituzione, sono
+     due UI indipendenti sullo stesso backend.
+  2. **Deploy**: build statico React (`vite build`) servito dal container
+     FastAPI esistente via `StaticFiles` — **nessun nuovo servizio** in
+     `docker-compose.yml`, nessun nginx, nessun CORS da configurare.
+     Motivazione: N-NF4 (manutenibilità solo-dev) e N-NF2 (peso su
+     Raspberry, F7) — un servizio JS in più (nginx) non aggiunge valore
+     rispetto a file statici serviti dal processo Python già presente.
+  3. **Nuovi endpoint FastAPI** (nessuno esiste oggi):
+     `GET/PUT/DELETE /transactions` (lista filtrata/paginata, edit
+     `comment`/`tag`/`category_id`, delete — mai campi dell'hash dedup),
+     `GET/PATCH /accounts` (lista, rename `display_name`, N-F6 oggi non
+     esposto da alcun router), `GET /insights` (trend mensile,
+     breakdown per categoria, saldo cumulato, saldo per conto — stessa
+     logica delle card SQL Metabase F3, ma via SQLAlchemy). Letture sul DB
+     **live**, non sulla replica: il meccanismo di replica read-only
+     (ADR-0004/ADR-0017) esiste solo per isolare Metabase in un container
+     separato che non può condividere il file SQLite in WAL; FastAPI è già
+     l'unico writer e WAL garantisce reader concorrenti sicuri nello stesso
+     processo, quindi nessun bisogno di replica per i propri endpoint.
+     Nessuna colonna nuova, nessuna Alembic revision per questo layer.
+  4. **Stack frontend**: React + Vite + **TypeScript** (tipi generabili da
+     schema OpenAPI FastAPI, contratto verificato a compile time),
+     **TanStack Query** (fetch/cache/mutazioni/invalidation dichiarativa —
+     necessario col requisito di scrittura piena, evita boilerplate
+     manuale su ogni pagina), **React Router**, **Tailwind CSS +
+     shadcn/ui** (look moderno N-NF5 senza design-system pesante da
+     mantenere), **Recharts** (grafici dichiarativi React-native).
+     Scartate: fetch nativo + `useState` puro (boilerplate eccessivo con
+     tante mutazioni), MUI + Redux Toolkit Query (bundle pesante, opinioni
+     di stile in conflitto con N-NF5, overkill single-user, peso extra su
+     Raspberry — contro N-NF4).
+  5. **Pagine**: Dashboard, Transazioni, Import (riusa endpoint `imports.py`
+     esistenti as-is), Categorie pending (riusa `categories.py` as-is),
+     Conti, Backup (trigger/lista/restore — riusa `backup.py` as-is).
+  6. **Operazioni distruttive** (delete transazione, restore backup):
+     conferma esplicita a 2 step in UI prima della chiamata — rispecchia
+     lato frontend la stessa cautela già imposta lato backend da
+     `confirm: true` obbligatorio su `/backup/restore` (ADR-0018 punto 5).
+  7. **Testing**: nuova suite pytest per i router `transactions`/
+     `accounts`/`insights` (stesso pattern F4, prima suite del repo).
+     Nessuna suite automatica frontend (nessun requisito di produzione
+     dichiarato dall'utente per questa fase, N-NF4) — verifica E2E manuale
+     in browser a fine implementazione, coerente col pattern F1-F4
+     (backend testato, frontend/dashboard verificato a mano).
+  8. **Sottoagente**: `react-ui-agent` creato in `.claude/agents/`
+     (componenti React, routing, chiamate FastAPI read+write, stato/query),
+     mappato in CLAUDE.md.
+- Conseguenze: nessuna modifica di schema in F5 (nessuna Alembic revision);
+  tre nuovi router backend da implementare prima/insieme al frontend;
+  due UI parallele da mantenere allineate ai dati (Metabase read-only +
+  React read/write) — accettato perché sono processi indipendenti sullo
+  stesso backend, nessuna duplicazione di logica di scrittura. Debito
+  noto aperto: nessun test frontend automatico (rivedibile se emergono
+  requisiti di produzione, nuovo ADR).
+
 ## ADR-0016 — Versione Metabase pinnata reale: `v0.62.4` (specializza ADR-0004)
 - Status: Accepted — Fase: F3 (scaffolding) — Data: 2026-07-14
 - Contesto: ADR-0004 fissa la policy (replica read-only, immagine pinnata, mai `latest`) ma usa `v0.50.30`

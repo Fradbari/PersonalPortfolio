@@ -26,7 +26,7 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
 ## Mappa fasi (dettaglio + stato vivo in docs/ARCHITECTURE.md)
 F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico (dry-run, dal 2026) ·
 F3 dashboard Metabase · F4 backup · F5 UI React · F6 AI · F7 Raspberry arm64.
-**Fase corrente: F4 (completata) → prossima F5.**
+**Fase corrente: F5 (F4 completata) — design approvato, agente attivato, ADR in scrittura.**
 
 ## Sottoagenti di progetto (`.claude/agents/`)
 Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.
@@ -34,6 +34,7 @@ Attivarli quando parte la fase relativa. Collegati alla skill superpower general
 - **schema-agent** — modelli SQLAlchemy, Alembic revision, integrità schema (ogni fase che tocca il DB).
 - **dashboard-agent** — Metabase, replica read-only atomica, dashboard/insight (F3).
 - **backup-agent** — dump SQLite + export .xlsx, Google Drive Service Account, restore (F4).
+- **react-ui-agent** — frontend React+Vite+TS (TanStack Query, Tailwind/shadcn, Recharts), endpoint FastAPI read+write (`/transactions`, `/accounts`, `/insights`), affianca Metabase (F5).
 
 ## Comandi
 ```bash
