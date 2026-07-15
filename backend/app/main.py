@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings
-from app.routers import backup, categories, imports
+from app.routers import accounts, backup, categories, imports, insights, transactions
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,9 @@ app = FastAPI(title="Personal Portfolio", version="0.1.0-phase4", lifespan=lifes
 app.include_router(imports.router)
 app.include_router(categories.router)
 app.include_router(backup.router)
+app.include_router(transactions.router)
+app.include_router(accounts.router)
+app.include_router(insights.router)
 
 
 @app.get("/health")
