@@ -4,15 +4,22 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-# Import models FIRST to ensure they're registered with Base
-from app.models import Category, Transaction
 from app.db import Base, get_session
+from app.models import Category, Transaction
 from app.routers import transactions as transactions_router
 
 
 def _build_test_app():
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, future=True)
+    # StaticPool: FastAPI esegue gli endpoint sync in un thread pool separato dal
+    # thread di test — senza StaticPool ogni thread vedrebbe un DB `:memory:` diverso
+    # (SingletonThreadPool e' per-thread) e Base.metadata.create_all() risulterebbe
+    # invisibile all'endpoint ("no such table"). StaticPool forza un'unica connessione
+    # condivisa fra tutti i thread.
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
+    )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine, future=True)
 
