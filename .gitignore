@@ -46,3 +46,4 @@ Thumbs.db
 
 # === Dati personali reali usati per test manuali (mai committare) ===
 reference-tobedelated/
+.claude/.headroom_wrap_marker.json
