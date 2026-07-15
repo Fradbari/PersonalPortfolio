@@ -117,6 +117,45 @@ def test_update_transaction_edits_comment_tag_category():
     assert body["category_raw"] == "Stipendio"
 
 
+def test_update_transaction_ignores_immutable_fields_in_body():
+    client, Session = _build_test_app()
+    _seed(Session)
+    with Session() as session:
+        txn = session.query(Transaction).filter_by(hash_dedup="h1").one()
+        txn_id = txn.id
+        original_amount = txn.amount
+        original_date = txn.date.isoformat()
+        original_category_raw = txn.category_raw
+        original_account = txn.account
+        original_type = txn.type
+        original_hash = txn.hash_dedup
+
+    resp = client.put(
+        f"/transactions/{txn_id}",
+        json={
+            "comment": "nota",
+            "amount": 999999.0,
+            "date": "2099-12-31T00:00:00",
+            "category_raw": "Hackerata",
+            "account": "conto-fantasma",
+            "type": "income",
+            "hash_dedup": "manomesso",
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["comment"] == "nota"  # editable field applied
+    # campi stabili invariati (ADR-0005/ADR-0013) nonostante il tentativo nel body
+    assert body["amount"] == original_amount
+    assert body["date"] == original_date
+    assert body["category_raw"] == original_category_raw
+    assert body["account"] == original_account
+    assert body["type"] == original_type
+    with Session() as session:
+        assert session.get(Transaction, txn_id).hash_dedup == original_hash
+
+
 def test_update_transaction_rejects_unknown_category():
     client, Session = _build_test_app()
     _seed(Session)
