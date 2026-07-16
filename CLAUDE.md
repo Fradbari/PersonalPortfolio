@@ -25,8 +25,8 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
 
 ## Mappa fasi (dettaglio + stato vivo in docs/ARCHITECTURE.md)
 F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico (dry-run, dal 2026) ·
-F3 dashboard Metabase · F4 backup · F5 UI React · F6 AI · F7 Raspberry arm64.
-**Fase corrente: F6 (F5 completata, 2026-07-16, 10/10 task).** Branch `f5-ui-react` in attesa di merge esplicito su master (istruzione utente, non ancora eseguito).
+F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64.
+**Fase corrente: F-DEBT (F5 completata e mergiata su master, 2026-07-16, 10/10 task, PR#1).** 5 task di debito tecnico non bloccante registrati in `docs/TECH-DEBT.md`, nessuno ancora iniziato.
 
 ## Sottoagenti di progetto (`.claude/agents/`)
 Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.

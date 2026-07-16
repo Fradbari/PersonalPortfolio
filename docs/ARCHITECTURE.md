@@ -164,6 +164,73 @@ Layered, container-per-responsabilità, unico `docker-compose.yml`.
 - **Trigger di avvio** (parte quando almeno una è vera): (a) si vuole integrare il layer AI (Fase 6); (b) serve un'azione **write** nell'UI (import, gestione pending) non supportata da Metabase read-only; (c) si vuole esporre fuori rete locale.
 - **Milestone**: UI custom affianca/sostituisce Metabase per il flusso quotidiano.
 
+### Fase F-DEBT — Risoluzione debito tecnico F5
+
+Fase di manutenzione, posizionata dopo F5 e prima di F6. Chiude i 5 debiti tecnici registrati in
+`docs/TECH-DEBT.md` (nessuno bloccante per l'uso corrente, ma da chiudere prima di aggiungere nuova
+superficie funzionale in F6). Nessuna milestone di prodotto — solo hardening/pulizia.
+
+- **Task DEBT-01 — Tiebreaker deterministico su `GET /transactions`**
+  - Descrizione: `list_transactions` (`backend/app/routers/transactions.py`) ordina solo per
+    `Transaction.date.desc()`; aggiungere una chiave secondaria stabile (`Transaction.id.desc()`)
+    per garantire paginazione deterministica quando più righe condividono la stessa data.
+  - Acceptance criteria: query ordina per `(date desc, id desc)`; test di regressione che inserisce
+    ≥3 transazioni con data identica e verifica che l'ordine sia stabile su chiamate ripetute e che
+    nessuna riga sia duplicata/saltata attraversando `page`/`page_size`.
+  - Effort: **S**.
+
+- **Task DEBT-02 — Favicon servita correttamente in produzione**
+  - Descrizione: `frontend/index.html` referenzia `/favicon.svg`, non raggiungibile in produzione
+    perché fuori dal mount `/assets` (il catch-all SPA lo intercetta e ritorna `index.html`).
+    Estendere il mount statico in `backend/app/main.py` per servire anche gli asset di root
+    (`favicon.svg`, eventuali altre icone) prima del catch-all, oppure spostare l'icona dentro
+    `frontend/public` con path coerente col build Vite. Rimuovere `frontend/public/icons.svg` se
+    resta non referenziato (asset morto) o wireggiarlo se serviva a uno scopo dimenticato.
+  - Acceptance criteria: `curl -I http://localhost:8000/favicon.svg` (container di produzione)
+    ritorna `200` con `Content-Type: image/svg+xml`, non `text/html`; nessun asset dichiarato in
+    `index.html` rimane 404/servito come SPA fallback.
+  - Effort: **S**.
+
+- **Task DEBT-03 — Riconciliazione versione React nel piano**
+  - Descrizione: solo documentale. Il piano F5 e la narrativa di design citano "React 18", ma lo
+    scaffold Vite (Task 5) ha generato `react@^19.2.7` (default npm al momento dell'esecuzione).
+    Aggiornare `docs/superpowers/plans/2026-07-15-f5-react-ui.md` (o l'ADR-0019 in
+    `docs/DECISIONS.md`, a seconda di dove vive la dicitura) per riflettere la versione reale
+    shippata, con nota sul perché (default scaffold, non una scelta esplicita).
+  - Acceptance criteria: nessuna menzione residua di "React 18" in riferimento al codice F5
+    effettivamente committato; la voce in `docs/TECH-DEBT.md` (DEBT-03) marcata come chiusa dopo
+    l'aggiornamento.
+  - Effort: **S**.
+
+- **Task DEBT-04 — Fix proxy Vite dev su `/import`**
+  - Descrizione: `frontend/vite.config.ts`'s `server.proxy` fa match per prefisso su `/import`,
+    intercettando anche la navigazione diretta/reload della SPA su quella route (non solo le
+    chiamate API `POST /import/*`). Restringere il pattern di proxy a path più specifici (es. solo
+    `^/import/(my-finance|historical/.*)$` invece del prefisso nudo `/import`) così che un reload
+    su `/import` (la pagina) non collida col backend. Verificare che tutti gli altri path proxati
+    (`/transactions`, `/accounts`, `/insights`, `/categories`, `/backup`, `/health`) non abbiano lo
+    stesso problema di collisione con route SPA — al momento nessuno di questi ha un nome di pagina
+    identico (`/conti`, `/backup` sì potenzialmente collide con `/backup` — verificare esplicitamente
+    anche questo durante il task).
+  - Acceptance criteria: `npm run dev` + reload diretto del browser su `http://localhost:5173/import`
+    e su `http://localhost:5173/backup` servono la SPA (non un JSON di errore dal backend); tutte le
+    chiamate API esistenti verso quei prefissi continuano a funzionare (regressione manuale sulle
+    pagine Import/Backup).
+  - Effort: **M** (richiede verificare ogni path proxato per lo stesso pattern di collisione, non
+    solo `/import`).
+
+- **Task DEBT-05 — Pulizia worktree stale `f4-backup`**
+  - Descrizione: `.git/worktrees/f4-backup` genera un warning innocuo `Permission denied` ad ogni
+    commit (probabile lock OneDrive). Investigare la causa (processo/handle che tiene il lock),
+    tentare `git worktree prune`; se il prune fallisce per lo stesso lock, documentare il workaround
+    (es. chiudere OneDrive temporaneamente, o `rm -rf` manuale della directory se `prune` non basta).
+  - Acceptance criteria: `git commit` non produce più il warning `failed to delete
+    '.git/worktrees/f4-backup'`; `git worktree list` non mostra riferimenti residui.
+  - Effort: **S**.
+
+**Milestone F-DEBT**: tutti e 5 i task chiusi, `docs/TECH-DEBT.md` aggiornato con stato "chiuso" per
+ognuno, nessuna regressione sulle funzionalità F1-F5 esistenti.
+
 ### Fase 6 — Plugin AI
 - Adapter provider-agnostico, API key utente da env; insight NL su dati aggregati.
 - **Milestone**: query NL sui propri dati con la propria key.
@@ -216,7 +283,8 @@ Artefatti da creare e **mantenere sempre allineati** (regola: chiudere ogni sess
 | F2 Migrazione storico (dry-run) | ☑ fatto (2026-07-14) | Adapter un-pivot (`master_sheet_parser.py`, ADR-0015) + `POST /import/historical/dry-run` (DB effimero) + `POST /import/historical/commit` (DB live). Dry-run verificato su file reale: would_import=331 (309 spese + 22 entrate), 222 scartate (204 vuote, 12 Totale%, 6 marcatori mese), 20 categorie pending, quadratura mensile diff=0.0 su tutti i 12 mesi. **Validato manualmente dall'utente contro il foglio originale (R1) → commit reale eseguito**: `import_batch_id=1`, 331 transazioni su `data/portfolio.db`. Verifica indipendente via SQL diretto: `PRAGMA integrity_check`=ok, 331 transazioni (309 expense/9937.70€ + 22 income/19497.14€), somme mensili identiche al dry-run, 331 hash_dedup distinti (0 collisioni), conto unico `principale`, replica atomica creata (`replica/portfolio_replica.db`, ADR-0004). Archiviazione del foglio Google originale: passo manuale dell'utente (in corso, fuori dallo scope del codice). |
 | F3 Dashboard Metabase | ☑ fatto (2026-07-14) | Docker Desktop verificato attivo; immagine `metabase/metabase:v0.62.4` verificata con `curl` incluso (nessun fix healthcheck necessario). Stack avviato (`docker compose up -d`), entrambi i servizi `healthy`. Bug scoperto e risolto durante il setup: connessione SQLite alla replica falliva (`SQLITE_CANTOPEN`) perché il DB live è in WAL e apre file ausiliari `-wal`/`-shm` anche in lettura, impossibile su mount realmente read-only — fix in `app/db.py` (`refresh_read_only_replica()`: checkpoint + copia + `PRAGMA journal_mode=DELETE` sulla copia), **ADR-0017**. Datasource SQLite configurata in Metabase via API (API key gruppo Administrators, non committata, in `.env` gitignored) puntata a `/replica/portfolio_replica.db` (mount `:ro`); sync completo, tutte le tabelle rilevate. Dashboard "Personal Portfolio - Overview" con 4 card native SQL: entrate/uscite per mese, spesa per categoria (`category_raw`), trend saldo cumulato mensile, saldo per conto. Verifica dati: uscite totali card = 9937.70€, entrate totali = 19497.14€, saldo cumulato finale = 9559.44€ — combaciano esattamente coi totali del commit F2. Verificato "import in corso non blocca query": write-lock `BEGIN IMMEDIATE` tenuto sul DB live per 8s, query Metabase sulla replica risposta in 0.2s con dati corretti; integrità DB live confermata post-test (331 transazioni invariate). |
 | F4 Backup automatico | ☑ fatto (2026-07-14) | Sviluppato con subagent-driven-development (4 task TDD, backup-agent): `backend/app/backup.py` (dump SQLite via `sqlite3.Connection.backup()` online API — non `shutil.copy2`, evita il workaround di ADR-0017; export `.xlsx` flat leggibile; retention locale; restore), `backend/app/drive.py` (upload/retention Google Drive, Service Account **opzionale** — degradazione graceful se `/secrets/service_account.json` assente, timeout 30s sul client), `backend/app/routers/backup.py` (`POST /backup`, `GET /backup`, `POST /backup/restore` con `confirm: true` obbligatorio), job `BACKUP_ON_STARTUP` su thread non-bloccante in `main.py`. ADR-0018. Prima suite pytest committata nel repo (17 test, tutti su comportamento reale — nessun mock salvo il fake Drive service per `apply_drive_retention`). 3 review-loop durante l'implementazione: (1) Task 3 review → fix `get_drive_service()` dentro il blocco `try` di `run_backup()` (SA malformata non doveva sfuggire al best-effort); (2) Task 4 review → **path traversal** in `POST /backup/restore` (filename tipo `portfolio_backup_../../../etc/x.db` aggirava il check `startswith`/`endswith`) risolto con `os.path.basename()` + containment check, test di regressione aggiunto; (3) review finale whole-branch (opus) → timeout Drive client (`AuthorizedHttp`, 30s) e job d'avvio spostato su `threading.Thread` daemon (non bloccava più il boot come richiesto da ADR-0018 punto 6). Verifica E2E reale (container Docker isolato `f4-verify`, non il `pp-backend` di produzione già attivo): transazione sintetica → `POST /backup` → `row_count=1`, `drive_uploaded=false` con `drive_error` esplicativo (nessuna SA montata, degradazione graceful confermata) → file `.db`+`.xlsx` reali su `/backups` → DB live svuotato → restore senza `confirm` → 400 → restore con filename path-traversal → 400 → restore reale con `confirm:true` → 200, dati ripristinati esatti (`12.34 EUR`, `TestVerificaF4`), replica Metabase rigenerata, `/health` ok post-restore. Debito noto non bloccante (single-dev locale, documentato non implementato): nessun pre-restore snapshot di sicurezza, nessun `PRAGMA integrity_check` sul backup prima di restore, collisione timestamp se due backup nello stesso secondo, `.xlsx` orfano (senza `.db` associato) non ripulito dalla retention. |
-| F5 UI React | ☑ fatto (2026-07-16) | Sviluppato con subagent-driven-development (10 task, react-ui-agent), branch `f5-ui-react`. Backend (Task 1-4): router `GET/PUT/DELETE /transactions` (PATCH limitato a comment/tag/category_id, mai hash_dedup), `GET/PATCH /accounts`, `GET /insights` (trend mensile, breakdown categoria, saldo cumulato, saldo per conto), montati in main.py. Frontend (Task 5-9): scaffold Vite+React+TS+TanStack Query+React Router+Tailwind v3+Recharts (Tailwind pinnato a v3.4.19, baseUrl omesso da tsconfig.app.json per incompatibilità TS 6/TS5101 — deviazioni verificate e confermate corrette in review), 6 pagine (Dashboard, Transazioni, Import, Categorie pending, Conti, Backup) con read+write reale su FastAPI, conferma esplicita a 2 step per le operazioni distruttive (delete transazione, restore backup — verificato che nessun code path bypassa il click di conferma). Ogni task review-clean (0 Critical, Important residui solo su hardening non bloccante, es. tipizzazione PUT body). Integrazione Docker (Task 10): `backend/Dockerfile` riscritto multi-stage (stage `frontend-build` con `npm ci && npm run build`, stage runtime Python copia `frontend_dist`), `docker-compose.yml` build context esteso a root, `backend/app/main.py` serve la SPA su `/` con fallback client-side routing per path non-API, `.dockerignore` aggiunto. Verifica E2E reale eseguita in questa sessione (non solo build): `docker compose build backend && docker compose up -d` → `pp-backend`+`pp-metabase` healthy; suite pytest completa 35/35 passing; verifica browser live su `http://localhost:8000` (container di produzione, non dev server): tutte le 6 pagine navigate via sidebar con dati reali (331 transazioni da F2), **hard refresh diretto su `/transazioni` conferma il fallback SPA (nessun 404)**, `/docs` Swagger UI raggiungibile, Metabase su `:3000` raggiungibile e invariata (pagina di login normale, ADR-0004/ADR-0019 rispettati), zero errori console in tutti i test. Bug dev-only scoperto e documentato (non blocca produzione): il proxy Vite dev fa match per prefisso su `/import`, quindi una navigazione diretta/reload su `http://localhost:5173/import` (non un click sidebar) ritorna 404 dal backend invece della SPA — non riproducibile in produzione perché FastAPI fa match per path esatto. Merge `f5-ui-react` → master **non ancora eseguito** (istruzione utente esplicita, da fare a parte). Stato dettagliato, ledger task-per-task ed evidenze complete: `.superpowers/sdd/progress.md`. |
+| F5 UI React | ☑ fatto (2026-07-16) | Sviluppato con subagent-driven-development (10 task, react-ui-agent), branch `f5-ui-react`, **mergiato su master 2026-07-16 (PR#1, merge commit 7fdeb00)**. Backend (Task 1-4): router `GET/PUT/DELETE /transactions` (PATCH limitato a comment/tag/category_id, mai hash_dedup), `GET/PATCH /accounts`, `GET /insights` (trend mensile, breakdown categoria, saldo cumulato, saldo per conto), montati in main.py. Frontend (Task 5-9): scaffold Vite+React+TS+TanStack Query+React Router+Tailwind v3+Recharts (Tailwind pinnato a v3.4.19, baseUrl omesso da tsconfig.app.json per incompatibilità TS 6/TS5101 — deviazioni verificate e confermate corrette in review), 6 pagine (Dashboard, Transazioni, Import, Categorie pending, Conti, Backup) con read+write reale su FastAPI, conferma esplicita a 2 step per le operazioni distruttive (delete transazione, restore backup — verificato che nessun code path bypassa il click di conferma). Ogni task review-clean (0 Critical, Important residui solo su hardening non bloccante, es. tipizzazione PUT body). Integrazione Docker (Task 10): `backend/Dockerfile` riscritto multi-stage (stage `frontend-build` con `npm ci && npm run build`, stage runtime Python copia `frontend_dist`), `docker-compose.yml` build context esteso a root, `backend/app/main.py` serve la SPA su `/` con fallback client-side routing per path non-API, `.dockerignore` aggiunto. Verifica E2E reale eseguita in questa sessione (non solo build): `docker compose build backend && docker compose up -d` → `pp-backend`+`pp-metabase` healthy; suite pytest completa 35/35 passing; verifica browser live su `http://localhost:8000` (container di produzione, non dev server): tutte le 6 pagine navigate via sidebar con dati reali (331 transazioni da F2), **hard refresh diretto su `/transazioni` conferma il fallback SPA (nessun 404)**, `/docs` Swagger UI raggiungibile, Metabase su `:3000` raggiungibile e invariata (pagina di login normale, ADR-0004/ADR-0019 rispettati), zero errori console in tutti i test. Review finale whole-branch (opus) ha trovato 2 Important (gate dry-run storico bypassabile cambiando file; mutation silenziose senza feedback errore) — entrambi fixati (commit 7e9cd67) e ri-verificati (re-review + test live) prima del merge. Bug dev-only scoperto (non blocca produzione, tracciato come DEBT-04): il proxy Vite dev fa match per prefisso su `/import`, quindi una navigazione diretta/reload su `http://localhost:5173/import` (non un click sidebar) ritorna 404 dal backend invece della SPA — non riproducibile in produzione perché FastAPI fa match per path esatto. Stato dettagliato, ledger task-per-task ed evidenze complete: `.superpowers/sdd/progress.md`. |
+| F-DEBT Risoluzione debito tecnico F5 | ☐ da fare | 5 task (DEBT-01/05), registro completo in `docs/TECH-DEBT.md`. Nessuno bloccante, ma da chiudere prima di F6. |
 | F6 Plugin AI | ☐ da fare | — |
 | F7 Raspberry arm64 | ☐ da fare | — |
 
@@ -228,15 +296,19 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
-Fase corrente: F6 (F5 completata 2026-07-16, 10/10 task, branch f5-ui-react — merge su master pending).
-F5 = UI React (Subagent-Driven Development, piano docs/superpowers/plans/2026-07-15-f5-react-ui.md),
-tutti i 10 task review-clean, verifica E2E reale eseguita (build Docker, 35/35 test,
-navigazione browser sulle 6 pagine servite dal container di produzione su :8000,
-hard refresh su /transazioni conferma fallback SPA, Metabase invariata su :3000).
-Dettaglio task-per-task ed evidenze complete: .superpowers/sdd/progress.md.
-PENDING (istruzione utente esplicita, non ancora eseguito): merge branch f5-ui-react → master.
+Fase corrente: F-DEBT (F5 completata e MERGIATA su master 2026-07-16, PR#1, merge
+commit 7fdeb00). F5 = UI React (Subagent-Driven Development, piano
+docs/superpowers/plans/2026-07-15-f5-react-ui.md), tutti i 10 task review-clean +
+review finale whole-branch (2 Important fixati e ri-verificati), verifica E2E reale
+(build Docker, 35/35 test, navigazione browser 6 pagine su container produzione :8000,
+hard refresh /transazioni conferma fallback SPA, Metabase invariata su :3000).
+F-DEBT: 5 task di debito tecnico non bloccante registrati in docs/TECH-DEBT.md
+(DEBT-01 pagination tiebreaker, DEBT-02 favicon prod, DEBT-03 versione React nel piano,
+DEBT-04 bug dev-only proxy Vite /import, DEBT-05 worktree stale f4-backup) — nessuno
+ancora iniziato.
+Dettaglio F5 task-per-task ed evidenze complete: .superpowers/sdd/progress.md.
 Sottoagente react-ui-agent (`.claude/agents/react-ui-agent.md`) resta disponibile per
-manutenzione F5 futura.
+manutenzione F5 futura e per i task F-DEBT lato frontend.
 Regole sempre valide: no schema change senza alembic revision; no secret committato;
 dubbi → chiedi; PUT /transactions/{id} edita SOLO comment/tag/category_id (mai hash_dedup).
 Ciclo fase: best practice → sottoagente dominio → ADR in DECISIONS.md → implementa →
