@@ -66,6 +66,9 @@ export function CategoriesPending() {
         </tbody>
       </table>
       {data?.length === 0 ? <p className="text-gray-500">Nessuna categoria in coda.</p> : null}
+      {resolveMutation.error ? (
+        <p className="mt-3 text-red-600">{(resolveMutation.error as Error).message}</p>
+      ) : null}
     </div>
   )
 }

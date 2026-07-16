@@ -196,6 +196,9 @@ export function Transactions() {
                     <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>
                       Annulla
                     </Button>
+                    {updateMutation.error ? (
+                      <p className="mt-1 text-xs text-red-600">{(updateMutation.error as Error).message}</p>
+                    ) : null}
                   </>
                 ) : (
                   <>
@@ -233,6 +236,9 @@ export function Transactions() {
           ))}
         </tbody>
       </table>
+      {deleteMutation.error ? (
+        <p className="mt-3 text-red-600">{(deleteMutation.error as Error).message}</p>
+      ) : null}
 
       <div className="mt-4 flex items-center gap-3 text-sm">
         <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>

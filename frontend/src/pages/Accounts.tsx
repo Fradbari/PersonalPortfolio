@@ -83,6 +83,9 @@ export function Accounts() {
           ))}
         </tbody>
       </table>
+      {renameMutation.error ? (
+        <p className="mt-3 text-red-600">{(renameMutation.error as Error).message}</p>
+      ) : null}
     </div>
   )
 }

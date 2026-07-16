@@ -43,12 +43,22 @@ export function Import() {
 
       <section>
         <h2 className="mb-2 text-lg font-semibold">Import storico (master sheet)</h2>
-        <input type="file" accept=".xlsx" onChange={(e) => setHistoricalFile(e.target.files?.[0] ?? null)} />
+        <input
+          type="file"
+          accept=".xlsx"
+          onChange={(e) => {
+            setHistoricalFile(e.target.files?.[0] ?? null)
+            setDryRunResult(null)
+          }}
+        />
         <div className="mt-3 space-x-2">
           <Button
             variant="outline"
             disabled={!historicalFile || dryRunMutation.isPending}
-            onClick={() => historicalFile && dryRunMutation.mutate(historicalFile)}
+            onClick={() => {
+              setDryRunResult(null)
+              if (historicalFile) dryRunMutation.mutate(historicalFile)
+            }}
           >
             Dry-run
           </Button>
