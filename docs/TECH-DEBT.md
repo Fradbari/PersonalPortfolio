@@ -59,8 +59,10 @@ origine, severità, impatto e stato. Risolti nella fase **F-DEBT** (vedi `docs/A
   innocuo `error: failed to delete '.git/worktrees/f4-backup': Permission denied` ad ogni commit
   (probabile lock del filesystem OneDrive, stesso pattern osservato su `frontend/node_modules/.vite`).
 - **Impatto**: nessuno — il warning non impedisce il commit, è puramente rumore in output.
-- **Stato**: aperto. Pulizia con `git worktree prune` (richiede investigare il lock OneDrive se il
-  prune non risolve al primo tentativo).
+- **Stato**: **chiuso (2026-07-16)**. `git worktree prune` da solo non bastava (stesso lock OneDrive
+  di `frontend/node_modules/.vite`, la directory sopravviveva al prune). Risolto con `rm -rf
+  .git/worktrees/f4-backup` manuale + `git worktree prune`; `git worktree list` ora pulito, nessun
+  worktree residuo. Verificato: nessun warning `Permission denied` al prossimo commit.
 
 ## Legenda severità
 - **bassa**: nessun impatto funzionale/dati, cosmetico o solo-dev.
