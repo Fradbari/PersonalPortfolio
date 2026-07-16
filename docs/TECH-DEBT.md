@@ -36,7 +36,10 @@ origine, severità, impatto e stato. Risolti nella fase **F-DEBT** (vedi `docs/A
   nel piano.
 - **Impatto**: nessun impatto funzionale osservato (build verificata, E2E live verificato); solo
   disallineamento documentale piano/codice.
-- **Stato**: aperto.
+- **Stato**: **chiuso (2026-07-16)**. `docs/superpowers/plans/2026-07-15-f5-react-ui.md` riga 9
+  aggiornata: nota esplicita che il piano citava React 18 ma lo scaffold reale (Task 5) ha generato
+  `react@^19.2.7` (default npm dell'epoca, non scelta deliberata). ADR-0019 punto 4 non menzionava
+  già alcuna versione specifica — nessuna modifica necessaria lì.
 
 ### DEBT-04 — Bug dev-only: proxy Vite su `/import` non riproducibile in produzione
 - **Origine**: F5 Task 8 (verifica live browser), confermato non-riproducibile in Task 10.

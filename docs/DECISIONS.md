@@ -350,6 +350,40 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   noto aperto: nessun test frontend automatico (rivedibile se emergono
   requisiti di produzione, nuovo ADR).
 
+## ADR-0020 — Tiebreaker deterministico su `GET /transactions` (DEBT-01, F-DEBT)
+- Status: Accepted — Fase: F-DEBT — Data: 2026-07-16
+- Contesto: `list_transactions` ordinava solo per `Transaction.date.desc()`. Con più righe che
+  condividono la stessa data (comune nel dataset reale, es. import batch mensili), l'ordine
+  relativo tra loro non è garantito stabile da SQLite senza una seconda chiave esplicita —
+  righe potevano duplicarsi o saltare tra pagine consecutive.
+- Decisione: aggiunta `Transaction.id.desc()` come chiave di ordinamento secondaria, dopo
+  `date.desc()`. Nessuna modifica di schema (nessuna Alembic revision — `id` è già la PK).
+- Conseguenze: paginazione deterministica anche con date ripetute. Test di regressione
+  (`test_list_transactions_pagination_stable_with_same_date`) inserisce 5 transazioni con data
+  identica, pagina con `page_size=2` su 3 pagine, verifica zero duplicati/omissioni e ordine
+  stabile (id decrescente).
+
+## ADR-0021 — Favicon servita in produzione (DEBT-02, F-DEBT)
+- Status: Accepted — Fase: F-DEBT — Data: 2026-07-16
+- Contesto: `frontend/index.html` referenzia `/favicon.svg`, copiato da `frontend/public/`
+  alla root del build Vite (comportamento standard Vite per la cartella `public/`). In
+  produzione (`backend/app/main.py`) solo `/assets` era montato come `StaticFiles`
+  (contiene il bundle JS/CSS con hash); qualunque altro path, incluso `/favicon.svg`,
+  cadeva nel catch-all SPA che ritorna sempre `index.html` (200, `text/html`) —
+  l'icona falliva silenziosamente. `frontend/public/icons.svg` risultava committato
+  ma non referenziato da nessuna parte (asset morto).
+- Decisione: aggiunta una route esplicita `@app.get("/favicon.svg")` in `main.py`,
+  registrata PRIMA del catch-all `@app.get("/{full_path:path}")` (Starlette fa match
+  per ordine di registrazione, non per specificità di path — l'ordine è vincolante).
+  Rimosso `frontend/public/icons.svg` (nessun riferimento trovato, nessuno scopo
+  noto). Nessuna estensione generica a "servi tutta la cartella public" per non
+  introdurre un secondo meccanismo di static serving parallelo a `/assets` — un file
+  esplicito per ogni asset di root effettivamente referenziato, pattern replicabile
+  se in futuro si aggiungono altri file (`robots.txt`, ecc.).
+- Conseguenze: `/favicon.svg` risponde `200 image/svg+xml` in produzione. Nessun
+  impatto sul fallback SPA per le altre route (verificato: la route specifica non
+  intercetta nulla oltre l'esatto path `/favicon.svg`).
+
 ## ADR-0016 — Versione Metabase pinnata reale: `v0.62.4` (specializza ADR-0004)
 - Status: Accepted — Fase: F3 (scaffolding) — Data: 2026-07-14
 - Contesto: ADR-0004 fissa la policy (replica read-only, immagine pinnata, mai `latest`) ma usa `v0.50.30`

@@ -51,6 +51,14 @@ if os.path.isdir(FRONTEND_DIST):
     # client-side routing per ogni path non gia' gestito da un router API sopra.
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="frontend-assets")
 
+    # File statici copiati da frontend/public/ alla root del build Vite (non sotto
+    # /assets, che contiene solo il bundle JS/CSS con hash). Registrati PRIMA del
+    # catch-all sotto: Starlette fa match per ordine di registrazione, non per
+    # specificita' di path, quindi devono precedere "/{full_path:path}" (DEBT-02).
+    @app.get("/favicon.svg")
+    def favicon():
+        return FileResponse(os.path.join(FRONTEND_DIST, "favicon.svg"))
+
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
         return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
