@@ -52,7 +52,12 @@ origine, severità, impatto e stato. Risolti nella fase **F-DEBT** (vedi `docs/A
   fallback SPA (`main.py`, catch-all registrato dopo tutti i router) funziona correttamente, come
   confermato dal test hard-refresh su `/transazioni` in Task 10 (stesso meccanismo, path diverso).
 - **Impatto**: solo ambiente di sviluppo locale (`npm run dev`); nessun impatto in produzione.
-- **Stato**: aperto (accettabile come limite noto dell'ambiente dev, non richiede fix per lo shipping).
+- **Stato**: **chiuso (2026-07-16)**. Verificati tutti i path proxati per la stessa collisione:
+  solo `/import` e `/backup` colpiti. `/import` risolto restringendo il proxy ai sotto-path reali
+  (`/import/my-finance`, `/import/historical`, mai bare). `/backup` (endpoint reali bare, non
+  restringibile) risolto con `bypass` basato su `Accept` header (`text/html` → serve SPA,
+  `application/json` → proxy al backend). ADR-0022. Verificato live: reload diretto su entrambi
+  i path serve la SPA; "Backup ora" (chiamata reale via fetch) continua a funzionare.
 
 ### DEBT-05 — Worktree stale `.git/worktrees/f4-backup`
 - **Origine**: sessione F4 (backup), riscontrato per la prima volta durante F5.

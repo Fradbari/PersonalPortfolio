@@ -384,6 +384,37 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   impatto sul fallback SPA per le altre route (verificato: la route specifica non
   intercetta nulla oltre l'esatto path `/favicon.svg`).
 
+## ADR-0022 — Fix collisione proxy Vite dev su `/import` e `/backup` (DEBT-04, F-DEBT)
+- Status: Accepted — Fase: F-DEBT — Data: 2026-07-16
+- Contesto: `frontend/vite.config.ts`'s `server.proxy` faceva match per prefisso su
+  path bare (`/import`, `/backup`), identici alle pagine SPA omonime. Una
+  navigazione/reload diretto del browser su quei path (non un click sidebar, che
+  è client-side) veniva intercettato dal proxy e inoltrato al backend invece di
+  servire la SPA. Verificati tutti i path proxati per lo stesso pattern di
+  collisione (come richiesto dal piano F-DEBT): `/transactions` vs `/transazioni`,
+  `/accounts` vs `/conti`, `/categories` vs `/categorie-pending` — nessuna
+  collisione (stringhe diverse, nessun prefisso comune). Solo `/import` e
+  `/backup` collidevano, perché le pagine SPA usano lo stesso nome esatto dei
+  prefissi API.
+- Decisione: due fix diversi, perché i due casi non sono equivalenti a livello di
+  route reali del backend:
+  1. **`/import`**: nessun endpoint reale è mai bare `/import` (sempre
+     `/import/my-finance` o `/import/historical/*`) — sostituito il prefisso
+     generico con due chiavi proxy specifiche (`/import/my-finance`,
+     `/import/historical`), eliminando la collisione senza perdere copertura.
+  2. **`/backup`**: `GET`/`POST /backup` sono endpoint reali **bare** (stesso
+     path esatto della pagina SPA) — non esiste un pattern più specifico senza
+     perdere quelle due route. Fix: proxy con funzione `bypass` basata su
+     `Accept` header — richiesta con `text/html` (navigazione/reload reale del
+     browser) bypassa il proxy e lascia servire la SPA da Vite; richiesta con
+     `application/json` (fetch di TanStack Query) viene proxata normalmente al
+     backend.
+- Conseguenze: fix isolato a `vite.config.ts`, **solo ambiente dev** (in
+  produzione FastAPI fa match per path esatto, nessuna collisione possibile,
+  confermato in F5 Task 10). Verificato live: reload diretto su
+  `http://localhost:5173/import` e `/backup` serve la SPA; "Backup ora" (POST
+  `/backup` reale via fetch) continua a funzionare attraverso il bypass.
+
 ## ADR-0016 — Versione Metabase pinnata reale: `v0.62.4` (specializza ADR-0004)
 - Status: Accepted — Fase: F3 (scaffolding) — Data: 2026-07-14
 - Contesto: ADR-0004 fissa la policy (replica read-only, immagine pinnata, mai `latest`) ma usa `v0.50.30`
