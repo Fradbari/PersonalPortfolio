@@ -55,7 +55,11 @@ def list_transactions(
 
     total = session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
 
-    stmt = stmt.order_by(Transaction.date.desc()).offset((page - 1) * page_size).limit(page_size)
+    stmt = (
+        stmt.order_by(Transaction.date.desc(), Transaction.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     items = session.execute(stmt).scalars().all()
 
     return {

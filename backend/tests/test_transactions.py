@@ -96,6 +96,36 @@ def test_list_transactions_filters_by_type():
     assert resp.json()["total"] == 1
 
 
+def test_list_transactions_pagination_stable_with_same_date():
+    # DEBT-01: senza tiebreaker su id, righe con la stessa date possono duplicarsi
+    # o saltare tra pagine consecutive (ordine non garantito da SQLite in assenza di
+    # una seconda chiave di ordinamento esplicita).
+    client, Session = _build_test_app()
+    with Session() as session:
+        same_date = datetime(2026, 3, 10)
+        session.add_all(
+            [
+                Transaction(
+                    date=same_date, amount=float(i), currency="EUR", type="expense",
+                    category_raw="Alimentari", account="principale",
+                    source="my_finance", hash_dedup=f"same-date-{i}",
+                )
+                for i in range(5)
+            ]
+        )
+        session.commit()
+
+    seen_ids: list[int] = []
+    for page in (1, 2, 3):
+        resp = client.get("/transactions", params={"page": page, "page_size": 2})
+        assert resp.status_code == 200
+        seen_ids.extend(item["id"] for item in resp.json()["items"])
+
+    assert len(seen_ids) == 5
+    assert len(set(seen_ids)) == 5  # nessuna riga duplicata tra pagine
+    assert seen_ids == sorted(seen_ids, reverse=True)  # date.desc() + id.desc() -> id decrescente
+
+
 def test_update_transaction_edits_comment_tag_category():
     client, Session = _build_test_app()
     cat_id = _seed(Session)
