@@ -1,0 +1,14 @@
+# .dockerignore
+.git/
+data/
+replica/
+backups/
+secrets/
+metabase-data/
+frontend/node_modules/
+frontend/dist/
+backend/.pytest_cache/
+backend/__pycache__/
+**/__pycache__/
+.claude/
+docs/

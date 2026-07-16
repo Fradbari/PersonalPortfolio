@@ -41,3 +41,23 @@ git add -f /tmp/fake_sa.json && git commit -m "test" ; echo "exit=$?"
 2. **API key AI** (Fase 6): imposta `AI_API_KEY` in `.env` (non committato).
 
 La cartella `secrets/` esiste nel repo solo con un `.gitkeep`; il contenuto reale è ignorato.
+
+## Backup su Google Drive: condivisione cartella con la Service Account (Fase 4, ADR-0018)
+
+La Service Account **non ha uno spazio Drive proprio**: può scrivere solo in cartelle
+condivise esplicitamente con lei. Passo umano, una tantum, da fare nella console Google:
+
+1. Apri il JSON della Service Account (`secrets/service_account.json`) e leggi il campo
+   `"client_email"` (es. `nome-account@progetto.iam.gserviceaccount.com`).
+2. Su [Google Drive](https://drive.google.com), crea (o scegli) la cartella destinata ai
+   backup, click destro → **Condividi** → incolla l'email della Service Account → ruolo
+   **Editor** (serve per creare/cancellare i file di backup, non solo leggerli).
+3. Apri la cartella e copia l'ID dall'URL (`https://drive.google.com/drive/folders/<ID>`).
+4. Imposta `GDRIVE_BACKUP_FOLDER_ID=<ID>` in `.env`.
+
+Se lo scope OAuth della Service Account è `drive.file` (usato da questa app, non `drive`
+pieno — vedi `backend/app/drive.py`), la Service Account vede **solo** i file che ha creato
+lei stessa: la cartella condivisa limita comunque dove può scrivere, ma non le dà accesso
+al resto del Drive dell'utente. Se `GOOGLE_SA_KEY_PATH` non esiste a runtime, il backup
+Drive viene skippato senza errori bloccanti — il backup locale funziona comunque
+(degradazione graceful, ADR-0018 punto 3).

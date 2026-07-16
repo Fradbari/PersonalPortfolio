@@ -1,0 +1,199 @@
+from datetime import datetime
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.db import Base, get_session
+from app.models import Category, Transaction
+from app.routers import transactions as transactions_router
+
+
+def _build_test_app():
+    # StaticPool: FastAPI esegue gli endpoint sync in un thread pool separato dal
+    # thread di test — senza StaticPool ogni thread vedrebbe un DB `:memory:` diverso
+    # (SingletonThreadPool e' per-thread) e Base.metadata.create_all() risulterebbe
+    # invisibile all'endpoint ("no such table"). StaticPool forza un'unica connessione
+    # condivisa fra tutti i thread.
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
+    )
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, future=True)
+
+    def override_get_session():
+        session = Session()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app = FastAPI()
+    app.include_router(transactions_router.router)
+    app.dependency_overrides[get_session] = override_get_session
+    return TestClient(app), Session
+
+
+def _seed(Session) -> int:
+    with Session() as session:
+        cat = Category(name="Alimentari")
+        session.add(cat)
+        session.flush()
+        cat_id = cat.id
+        session.add_all(
+            [
+                Transaction(
+                    date=datetime(2026, 1, 5), amount=10.0, currency="EUR", type="expense",
+                    category_raw="Alimentari", category_id=cat_id, account="principale",
+                    source="my_finance", hash_dedup="h1",
+                ),
+                Transaction(
+                    date=datetime(2026, 2, 5), amount=1500.0, currency="EUR", type="income",
+                    category_raw="Stipendio", account="principale",
+                    source="my_finance", hash_dedup="h2",
+                ),
+            ]
+        )
+        session.commit()
+    return cat_id
+
+
+def test_list_transactions_returns_all_with_total():
+    client, Session = _build_test_app()
+    _seed(Session)
+
+    resp = client.get("/transactions")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2
+    assert len(body["items"]) == 2
+    assert body["page"] == 1
+    assert body["page_size"] == 50
+
+
+def test_list_transactions_filters_by_year_month():
+    client, Session = _build_test_app()
+    _seed(Session)
+
+    resp = client.get("/transactions", params={"year_month": "2026-01"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["category_raw"] == "Alimentari"
+
+
+def test_list_transactions_filters_by_type():
+    client, Session = _build_test_app()
+    _seed(Session)
+
+    resp = client.get("/transactions", params={"type": "income"})
+
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+
+
+def test_update_transaction_edits_comment_tag_category():
+    client, Session = _build_test_app()
+    cat_id = _seed(Session)
+    with Session() as session:
+        txn_id = session.query(Transaction).filter_by(hash_dedup="h2").one().id
+
+    resp = client.put(
+        f"/transactions/{txn_id}",
+        json={"comment": "nota", "tag": "extra", "category_id": cat_id},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["comment"] == "nota"
+    assert body["tag"] == "extra"
+    assert body["category_id"] == cat_id
+    # campi stabili invariati (ADR-0005/ADR-0013)
+    assert body["amount"] == 1500.0
+    assert body["category_raw"] == "Stipendio"
+
+
+def test_update_transaction_ignores_immutable_fields_in_body():
+    client, Session = _build_test_app()
+    _seed(Session)
+    with Session() as session:
+        txn = session.query(Transaction).filter_by(hash_dedup="h1").one()
+        txn_id = txn.id
+        original_amount = txn.amount
+        original_date = txn.date.isoformat()
+        original_category_raw = txn.category_raw
+        original_account = txn.account
+        original_type = txn.type
+        original_hash = txn.hash_dedup
+
+    resp = client.put(
+        f"/transactions/{txn_id}",
+        json={
+            "comment": "nota",
+            "amount": 999999.0,
+            "date": "2099-12-31T00:00:00",
+            "category_raw": "Hackerata",
+            "account": "conto-fantasma",
+            "type": "income",
+            "hash_dedup": "manomesso",
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["comment"] == "nota"  # editable field applied
+    # campi stabili invariati (ADR-0005/ADR-0013) nonostante il tentativo nel body
+    assert body["amount"] == original_amount
+    assert body["date"] == original_date
+    assert body["category_raw"] == original_category_raw
+    assert body["account"] == original_account
+    assert body["type"] == original_type
+    with Session() as session:
+        assert session.get(Transaction, txn_id).hash_dedup == original_hash
+
+
+def test_update_transaction_rejects_unknown_category():
+    client, Session = _build_test_app()
+    _seed(Session)
+    with Session() as session:
+        txn_id = session.query(Transaction).filter_by(hash_dedup="h1").one().id
+
+    resp = client.put(f"/transactions/{txn_id}", json={"category_id": 999})
+
+    assert resp.status_code == 404
+
+
+def test_update_transaction_missing_returns_404():
+    client, Session = _build_test_app()
+    _seed(Session)
+
+    resp = client.put("/transactions/999", json={"comment": "x"})
+
+    assert resp.status_code == 404
+
+
+def test_delete_transaction_removes_row():
+    client, Session = _build_test_app()
+    _seed(Session)
+    with Session() as session:
+        txn_id = session.query(Transaction).filter_by(hash_dedup="h1").one().id
+
+    resp = client.delete(f"/transactions/{txn_id}")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted_id": txn_id}
+    with Session() as session:
+        assert session.query(Transaction).count() == 1
+
+
+def test_delete_transaction_missing_returns_404():
+    client, Session = _build_test_app()
+    _seed(Session)
+
+    resp = client.delete("/transactions/999")
+
+    assert resp.status_code == 404

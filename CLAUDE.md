@@ -12,7 +12,7 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
 ## Stack
 - Backend: Python 3.12 + FastAPI (ETL: pandas/openpyxl). Unico writer sul DB.
 - Storage: SQLite in **WAL mode** (`data/portfolio.db`). Migrazioni: **Alembic**.
-- Dashboard: Metabase (Fase 3) su **replica read-only** atomica; poi UI React (Fase 5).
+- Dashboard: Metabase (Fase 3) su **replica read-only** atomica; affiancata da UI React (Fase 5, container singolo servito da FastAPI).
 - Backup: Service Account Google Drive + locale (Fase 4).
 - Infra: `docker-compose.yml`, volumi persistenti, secrets a runtime.
 
@@ -26,7 +26,7 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
 ## Mappa fasi (dettaglio + stato vivo in docs/ARCHITECTURE.md)
 F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico (dry-run, dal 2026) ·
 F3 dashboard Metabase · F4 backup · F5 UI React · F6 AI · F7 Raspberry arm64.
-**Fase corrente: F3 (completata) → prossima F4.**
+**Fase corrente: F6 (F5 completata, 2026-07-16, 10/10 task).** Branch `f5-ui-react` in attesa di merge esplicito su master (istruzione utente, non ancora eseguito).
 
 ## Sottoagenti di progetto (`.claude/agents/`)
 Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.
@@ -34,6 +34,7 @@ Attivarli quando parte la fase relativa. Collegati alla skill superpower general
 - **schema-agent** — modelli SQLAlchemy, Alembic revision, integrità schema (ogni fase che tocca il DB).
 - **dashboard-agent** — Metabase, replica read-only atomica, dashboard/insight (F3).
 - **backup-agent** — dump SQLite + export .xlsx, Google Drive Service Account, restore (F4).
+- **react-ui-agent** — frontend React+Vite+TS (TanStack Query, Tailwind/shadcn, Recharts), endpoint FastAPI read+write (`/transactions`, `/accounts`, `/insights`), affianca Metabase (F5).
 
 ## Comandi
 ```bash

@@ -22,6 +22,9 @@ replica/*
 backups/*
 !backups/.gitkeep
 
+# === Claude Code worktree scratch (isolamento sessioni, non contenuto di progetto) ===
+.claude/worktrees/
+
 # === Python ===
 __pycache__/
 *.py[cod]
@@ -43,3 +46,4 @@ Thumbs.db
 
 # === Dati personali reali usati per test manuali (mai committare) ===
 reference-tobedelated/
+.claude/.headroom_wrap_marker.json
