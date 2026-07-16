@@ -228,7 +228,7 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
-Fase corrente: F6 (F5 completata 2026-07-16, 10/10 task, branch f5-ui-react).
+Fase corrente: F6 (F5 completata 2026-07-16, 10/10 task, branch f5-ui-react — merge su master pending).
 F5 = UI React (Subagent-Driven Development, piano docs/superpowers/plans/2026-07-15-f5-react-ui.md),
 tutti i 10 task review-clean, verifica E2E reale eseguita (build Docker, 35/35 test,
 navigazione browser sulle 6 pagine servite dal container di produzione su :8000,
