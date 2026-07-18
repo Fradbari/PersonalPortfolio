@@ -415,6 +415,103 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   `http://localhost:5173/import` e `/backup` serve la SPA; "Backup ora" (POST
   `/backup` reale via fetch) continua a funzionare attraverso il bypass.
 
+## ADR-0023 — Layer AI (F6): query NL read-only, adapter provider-agnostico con unico adapter Gemini, tool registry read-only, service layer insights con filtri
+
+- Status: Accepted — Fase: F6 — Data: 2026-07-18
+- Contesto: F6 implementa N-F11 ("plugin AI con API key utente per insight NL"). La spec di design
+  (`docs/superpowers/specs/2026-07-18-f6-ai-nl-query-design.md`, rev. 1) nasceva da brainstorming e
+  non era stata verificata contro il codice. Il confronto col repo ha trovato 7 incoerenze, due
+  bloccanti:
+  1. la spec introduceva `GEMINI_API_KEY`, ma `config.py:24-25` e `.env.example:28-31` hanno da F0
+     `AI_API_KEY`/`AI_PROVIDER` (già pensate provider-agnostiche);
+  2. la spec diceva "riusa la logica di `insights.py`", ma le 4 funzioni di aggregazione
+     (`routers/insights.py:19-73`) **non accettano alcun filtro** e `GET /insights` non ha query
+     param: aggregano sempre l'intera tabella. Una domanda del tipo "quanto ho speso a marzo per
+     categoria" non sarebbe rispondibile se non scaricando le transazioni grezze e facendo sommare
+     al modello — più costoso, più lento e aritmeticamente inaffidabile.
+  Verificata inoltre l'API Gemini su ai.google.dev (2026-07-18): SDK `google-genai`
+  (`from google import genai`), **Interactions API** (GA) via `client.interactions.create()`,
+  function calling a **loop manuale** (il modello non esegue nulla; il backend intercetta lo step
+  `function_call`, esegue, e rimanda `function_result` con `name`, `call_id` propagato identico, e
+  `result`). Modelli GA al momento: `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-2.5-flash`,
+  `gemini-2.5-flash-lite`, `gemini-2.5-pro`.
+- Decisione:
+  1. **Scope**: solo query in linguaggio naturale in **sola lettura**. La categorizzazione AI delle
+     transazioni pending (ARCHITECTURE.md §4) è un sottosistema **write** separato, fuori scope,
+     con spec/ADR propri quando partirà.
+  2. **Adapter provider-agnostico** (`app/ai/provider.py`, interfaccia `AIProvider` con
+     `answer(question) -> AIAnswer`), un solo adapter concreto in questa fase
+     (`app/ai/providers/gemini.py`). Anthropic/OpenAI = interfaccia pronta, non implementati.
+     Scartate le librerie multi-provider (LiteLLM/AnyLLM) e i framework agent (LangChain):
+     dipendenza pesante non giustificata per un uso stateless single-user (N-NF4) e peso extra su
+     Raspberry (N-NF2, F7). Nuova dipendenza runtime: `google-genai` (client HTTP, il calcolo è
+     remoto: impatto arm64 trascurabile, da confermare in F7).
+  3. **Config**: si usano le variabili **già esistenti** `AI_PROVIDER` (oggi unico valore supportato
+     `gemini`; vuoto = layer AI disattivo) e `AI_API_KEY`. Si aggiunge solo `AI_MODEL` (model id,
+     default sulla linea *flash-lite* GA). **Nessuna variabile provider-specifica**: un
+     `GEMINI_API_KEY` contraddirebbe l'adapter provider-agnostico del punto 2 e renderebbe la
+     configurazione da riscrivere al primo secondo provider. Modello di default economico perché il
+     dataset reale è di poche centinaia di righe: un modello di punta non porta valore proporzionale
+     al costo, e il model id vive in una env var proprio per essere cambiabile senza rilascio.
+  4. **Tool registry read-only** (`app/ai/tools.py`), condiviso da tutti gli adapter presenti e
+     futuri: `list_transactions` (filtri data/categoria/conto/importo/tipo), `get_insights` (filtri
+     del punto 5), `get_accounts`, `get_categories`. Sono **wrapper sulle query esistenti**, zero SQL
+     duplicato. **Nessun tool può scrivere**: il modello non ha accesso ad alcuna operazione che
+     modifichi `transactions`/`accounts`/`category_pending`. La cautela imposta su restore/delete
+     (ADR-0018 p.5, ADR-0019 p.6) qui è applicata a monte, non esponendo affatto il tool di
+     scrittura — un output non deterministico del modello non può alterare dati. `PUT
+     /transactions/{id}` resta limitato a `comment`/`tag`/`category_id`, regola invariata e non
+     richiamata da alcun tool.
+  5. **Service layer insights** (`app/services/insights.py`): le 4 funzioni di aggregazione escono
+     dal router e acquisiscono filtri opzionali (`date_from`, `date_to`, `account`, `type`).
+     `GET /insights` diventa un wrapper sottile e, senza parametri, deve restituire **esattamente**
+     l'output odierno — i 5 test esistenti di `test_insights.py` devono passare **invariati**.
+     Specializza ADR-0019 p.3 (non lo supera): le letture restano sul DB **live**, la replica
+     read-only serve solo a isolare Metabase in un container separato.
+  6. **Stateless**: nessuna memoria conversazione, ogni domanda indipendente. Nessuna tabella nuova,
+     **nessuna Alembic revision per F6**.
+  7. **Guardrail operativi** (costo, latenza e volume di dati in egress dipendono tutti da questi):
+     - cap righe per tool call (`list_transactions` non restituisce mai più di N righe al modello),
+       col **troncamento dichiarato dentro il risultato del tool, mai silenzioso** — così il modello
+       sa di vedere un sottoinsieme e restringe i filtri invece di rispondere su dati parziali;
+     - cap iterazioni del loop tool-use: superato il limite l'endpoint risponde con quanto raccolto
+       e lo segnala, invece di ciclare a costo indefinito;
+     - timeout HTTP sulla chiamata al provider (stesso principio del timeout 30s già imposto al
+       client Drive in F4).
+     Valori concreti fissati nel piano implementativo, tarabili senza nuovo ADR.
+  8. **Degradazione graceful**: provider non configurato, chiave o modello assenti → **4xx esplicito**
+     dall'endpoint, nessun crash dell'app, nessun impatto sulle altre funzionalità (stesso pattern
+     del Drive opzionale, ADR-0018 p.3).
+  9. **Egress esterno**: secondo servizio esterno del progetto dopo Google Drive. Dati finanziari
+     **incluso il testo libero di `comment`/`tag`** lasciano la LAN verso il provider scelto
+     dall'utente, con la sua chiave personale, **solo su submit esplicito** — mai in background
+     (stesso principio di controllo-utente-sul-quando di ADR-0008). Trade-off privacy scelto
+     consapevolmente dall'utente in favore della capacità di rispondere anche sulle note delle
+     transazioni. Documentato in `docs/SECURITY.md`. ADR-0009 invariato: è un flusso uscente
+     iniziato dall'utente, non una nuova esposizione entrante.
+  10. **Ordine di montaggio**: il router `/ai` va incluso in `main.py` **prima** del blocco che serve
+      la SPA. Starlette fa match per ordine di registrazione, non per specificità: il catch-all
+      `GET /{full_path:path}` intercetterebbe qualunque route registrata dopo di lui (stessa trappola
+      già incontrata in DEBT-02/ADR-0021).
+  11. **Frontend**: settima pagina "Assistente AI" su route `/assistente-ai` (nome diverso dal prefisso
+      API `/ai`, quindi nessuna collisione proxy del tipo risolto in ADR-0022). Mostra sempre la
+      **traccia dei tool chiamati** accanto alla risposta: i modelli possono sbagliare l'aritmetica,
+      e la traccia rende i numeri ricontrollabili invece che da prendere sulla fiducia.
+  12. **Test**: mock del **solo** `AIProvider` (adapter fake deterministico) — precedente accettato del
+      fake Drive service (ADR-0018 p.7: mock ammesso solo per dipendenza esterna non deterministica e
+      a pagamento, mai per DB o business logic). Tool registry e service layer testati **senza mock**
+      su DB di test reale. Verifica E2E finale con risposta confrontata contro i totali noti del
+      dataset (F2: 331 transazioni, uscite 9937.70 €, entrate 19497.14 €).
+  13. **Sottoagente**: `ai-agent` creato in `.claude/agents/`, mappato in CLAUDE.md.
+- Conseguenze: nessuna modifica di schema in F6. Un refactor non previsto dalla spec originale
+  (service layer insights) diventa prerequisito del layer AI, ma paga anche fuori dall'AI: `/insights`
+  guadagna filtri riusabili da qualunque consumatore futuro. Una nuova dipendenza runtime
+  (`google-genai`). Debito noto accettato: la correttezza delle risposte non è verificabile
+  automaticamente — mitigata dalla traccia tool in UI (punto 11) e dal fatto che il modello aggrega
+  tramite tool invece di calcolare a mano dove possibile. Rischio residuo: le note personali in
+  `comment`/`tag` lasciano la rete locale (punto 9), scelta esplicita dell'utente e reversibile
+  restringendo il tool `list_transactions` senza toccare il resto dell'architettura.
+
 ## ADR-0016 — Versione Metabase pinnata reale: `v0.62.4` (specializza ADR-0004)
 - Status: Accepted — Fase: F3 (scaffolding) — Data: 2026-07-14
 - Contesto: ADR-0004 fissa la policy (replica read-only, immagine pinnata, mai `latest`) ma usa `v0.50.30`

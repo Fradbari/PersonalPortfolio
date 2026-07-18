@@ -26,7 +26,12 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
 ## Mappa fasi (dettaglio + stato vivo in docs/ARCHITECTURE.md)
 F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico (dry-run, dal 2026) ·
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64.
-**Fase corrente: F6 (F-DEBT completata, 2026-07-16 — F5 completata e mergiata su master, PR#1, 10/10 task).** Tutti e 5 i debiti tecnici chiusi (registro dismesso, dettaglio in docs/ARCHITECTURE.md sezione F-DEBT e ADR-0020/0021/0022).
+**Fase corrente: F6 — design chiuso 2026-07-18, implementazione da fare (nessun codice scritto).**
+F0-F5 + F-DEBT completate e mergiate su master (PR#1). Per implementare F6 leggi in quest'ordine:
+ADR-0023 in [docs/DECISIONS.md](docs/DECISIONS.md) → spec [docs/superpowers/specs/2026-07-18-f6-ai-nl-query-design.md](docs/superpowers/specs/2026-07-18-f6-ai-nl-query-design.md) → piano da eseguire [docs/superpowers/plans/2026-07-18-f6-ai-nl-query.md](docs/superpowers/plans/2026-07-18-f6-ai-nl-query.md).
+F6 = query NL **sola lettura** sui propri dati: `POST /ai/query` + settima pagina React. Nessuna
+modifica di schema. Config: `AI_PROVIDER`/`AI_API_KEY` (esistenti da F0) + `AI_MODEL` — **mai**
+`GEMINI_API_KEY`.
 
 ## Sottoagenti di progetto (`.claude/agents/`)
 Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.
@@ -35,6 +40,7 @@ Attivarli quando parte la fase relativa. Collegati alla skill superpower general
 - **dashboard-agent** — Metabase, replica read-only atomica, dashboard/insight (F3).
 - **backup-agent** — dump SQLite + export .xlsx, Google Drive Service Account, restore (F4).
 - **react-ui-agent** — frontend React+Vite+TS (TanStack Query, Tailwind/shadcn, Recharts), endpoint FastAPI read+write (`/transactions`, `/accounts`, `/insights`), affianca Metabase (F5).
+- **ai-agent** — layer AI: adapter provider-agnostico (unico adapter Gemini), tool registry **read-only**, loop tool-use manuale, `POST /ai/query`, service layer insights con filtri (F6, ADR-0023). Il modello non deve mai poter scrivere sul DB.
 
 ## Comandi
 ```bash

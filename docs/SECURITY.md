@@ -38,9 +38,47 @@ git add -f /tmp/fake_sa.json && git commit -m "test" ; echo "exit=$?"
 1. **Service Account Google** (backup, Fase 4): salva il JSON in `./secrets/service_account.json`
    sull'host. `docker-compose.yml` lo monta **read-only** su `/secrets`. Path in `.env`:
    `GOOGLE_SA_KEY_PATH=/secrets/service_account.json`.
-2. **API key AI** (Fase 6): imposta `AI_API_KEY` in `.env` (non committato).
+2. **API key AI** (Fase 6): imposta `AI_API_KEY` in `.env` (non committato), insieme a
+   `AI_PROVIDER` (oggi solo `gemini`) e `AI_MODEL`. Se `AI_PROVIDER` è vuoto il layer AI resta
+   disattivo e il resto dell'app funziona invariato.
 
 La cartella `secrets/` esiste nel repo solo con un `.gitkeep`; il contenuto reale è ignorato.
+
+## Egress esterno verso il provider AI (Fase 6, ADR-0023)
+
+Il layer AI è il **secondo** servizio esterno del progetto dopo Google Drive, ed è il primo verso cui
+escono dati finanziari veri e propri. Va capito bene prima di attivarlo.
+
+**Cosa esce dalla rete locale.** Quando poni una domanda nella pagina "Assistente AI", il backend
+esegue un loop di function calling: il modello chiede l'esecuzione di un tool, il backend interroga il
+DB locale e **rimanda il risultato al provider**. Quei risultati possono contenere:
+
+- dati aggregati (trend mensili, breakdown per categoria, saldi);
+- **transazioni grezze**: data, importo, categoria, conto, tipo, e **i campi liberi `comment` e
+  `tag`** — cioè le note che hai scritto tu, che possono contenere nomi di persone, luoghi, dettagli
+  personali.
+
+L'inclusione di `comment`/`tag` è una **scelta esplicita** dell'utente (ADR-0023 punto 9), fatta per
+poter rispondere a domande come "quanto ho speso per il regalo di X". È il trade-off privacy di questa
+fase. È reversibile: basta restringere il tool `list_transactions` a non restituire quei due campi,
+senza toccare nient'altro dell'architettura.
+
+**Quando esce.** Solo su **submit esplicito** del form. Mai in background, mai a un orario, mai
+all'avvio — stesso principio di controllo-utente-sul-quando già applicato al backup (ADR-0008).
+Nessuna domanda parte da sola.
+
+**Verso chi.** Verso il provider che configuri tu, autenticato con **la tua chiave personale**. Il
+progetto non ha né usa una chiave propria. Vale la pena leggere le condizioni d'uso del provider
+scelto per capire se e per quanto conserva i contenuti inviati: è una decisione che resta tua, non
+del progetto.
+
+**La chiave.** In `.env`, mai nel repository, coperta dall'hook pre-commit content-based (ADR-0011).
+Se `AI_PROVIDER` è vuoto o la chiave manca, l'endpoint risponde con un errore esplicito e il resto
+dell'app continua a funzionare (degradazione graceful, ADR-0023 punto 8).
+
+**Cosa NON cambia.** ADR-0009 resta invariato: questo è un flusso **uscente** iniziato dall'utente,
+non una nuova esposizione entrante. L'app continua a stare solo sulla rete locale, senza auth né
+reverse proxy. Nessun tool AI può scrivere sul database (ADR-0023 punto 4): il modello legge e basta.
 
 ## Backup su Google Drive: condivisione cartella con la Service Account (Fase 4, ADR-0018)
 

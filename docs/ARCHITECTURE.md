@@ -231,9 +231,32 @@ e 5 i debiti). Nessuna milestone di prodotto — solo hardening/pulizia.
 **Milestone F-DEBT**: tutti e 5 i task chiusi (evidenze nella sezione "Stato avanzamento" sotto e in
 ADR-0020/0021/0022), nessuna regressione sulle funzionalità F1-F5 esistenti.
 
-### Fase 6 — Plugin AI
-- Adapter provider-agnostico, API key utente da env; insight NL su dati aggregati.
-- **Milestone**: query NL sui propri dati con la propria key.
+### Fase 6 — Plugin AI: query NL sui propri dati (N-F11)
+
+Spec: `docs/superpowers/specs/2026-07-18-f6-ai-nl-query-design.md` (rev. 2, allineata al codice).
+Piano: `docs/superpowers/plans/2026-07-18-f6-ai-nl-query.md`. Decisioni: **ADR-0023**.
+Sottoagente: `ai-agent`. Esecuzione in Subagent-Driven Development, come F5.
+
+Scope: query in linguaggio naturale in **sola lettura** su aggregati e transazioni grezze filtrabili.
+Adapter provider-agnostico con unico adapter concreto Gemini (SDK `google-genai`, Interactions API,
+function calling a loop manuale). Stateless: nessuna memoria conversazione, **nessuna Alembic
+revision**. La categorizzazione AI delle pending resta fuori scope (sottosistema write, spec propria).
+
+- **M6.1 — Service layer insights con filtri**: le 4 funzioni di aggregazione escono da
+  `routers/insights.py` verso `services/insights.py` con filtri opzionali (`date_from`, `date_to`,
+  `account`, `type`); `GET /insights` diventa wrapper e senza parametri resta identico a oggi (i 5
+  test esistenti passano invariati). Prerequisito del layer AI, ma utile di per sé.
+- **M6.2 — Tool registry read-only**: `list_transactions`, `get_insights`, `get_accounts`,
+  `get_categories`, wrapper sulle query esistenti, zero SQL duplicato. Nessun tool di scrittura
+  raggiungibile dal modello (ADR-0023 p.4). Guardrail: cap righe con troncamento dichiarato, cap
+  iterazioni loop, timeout HTTP.
+- **M6.3 — Adapter Gemini + endpoint**: `AIProvider` astratto, adapter concreto, `POST /ai/query`
+  montato **prima** del catch-all SPA. Provider non configurato → 4xx esplicito, app invariata.
+- **M6.4 — Settima pagina React "Assistente AI"** su `/assistente-ai`, con la **traccia dei tool
+  chiamati** sempre visibile accanto alla risposta (i numeri restano ricontrollabili).
+- **Milestone F6**: domanda in linguaggio naturale sui propri dati con la propria chiave, risposta
+  **verificata numericamente** contro i totali noti del dataset (F2: 331 transazioni, uscite
+  9937.70 €, entrate 19497.14 €), tool di scrittura irraggiungibili dal modello, suite pytest verde.
 
 ### Fase 7 — Portabilità Raspberry Pi
 - Build multi-arch (`arm64`), test risorse (valutare peso Metabase → eventuale switch a sola UI React), tuning scheduler.
@@ -285,7 +308,7 @@ Artefatti da creare e **mantenere sempre allineati** (regola: chiudere ogni sess
 | F4 Backup automatico | ☑ fatto (2026-07-14) | Sviluppato con subagent-driven-development (4 task TDD, backup-agent): `backend/app/backup.py` (dump SQLite via `sqlite3.Connection.backup()` online API — non `shutil.copy2`, evita il workaround di ADR-0017; export `.xlsx` flat leggibile; retention locale; restore), `backend/app/drive.py` (upload/retention Google Drive, Service Account **opzionale** — degradazione graceful se `/secrets/service_account.json` assente, timeout 30s sul client), `backend/app/routers/backup.py` (`POST /backup`, `GET /backup`, `POST /backup/restore` con `confirm: true` obbligatorio), job `BACKUP_ON_STARTUP` su thread non-bloccante in `main.py`. ADR-0018. Prima suite pytest committata nel repo (17 test, tutti su comportamento reale — nessun mock salvo il fake Drive service per `apply_drive_retention`). 3 review-loop durante l'implementazione: (1) Task 3 review → fix `get_drive_service()` dentro il blocco `try` di `run_backup()` (SA malformata non doveva sfuggire al best-effort); (2) Task 4 review → **path traversal** in `POST /backup/restore` (filename tipo `portfolio_backup_../../../etc/x.db` aggirava il check `startswith`/`endswith`) risolto con `os.path.basename()` + containment check, test di regressione aggiunto; (3) review finale whole-branch (opus) → timeout Drive client (`AuthorizedHttp`, 30s) e job d'avvio spostato su `threading.Thread` daemon (non bloccava più il boot come richiesto da ADR-0018 punto 6). Verifica E2E reale (container Docker isolato `f4-verify`, non il `pp-backend` di produzione già attivo): transazione sintetica → `POST /backup` → `row_count=1`, `drive_uploaded=false` con `drive_error` esplicativo (nessuna SA montata, degradazione graceful confermata) → file `.db`+`.xlsx` reali su `/backups` → DB live svuotato → restore senza `confirm` → 400 → restore con filename path-traversal → 400 → restore reale con `confirm:true` → 200, dati ripristinati esatti (`12.34 EUR`, `TestVerificaF4`), replica Metabase rigenerata, `/health` ok post-restore. Debito noto non bloccante (single-dev locale, documentato non implementato): nessun pre-restore snapshot di sicurezza, nessun `PRAGMA integrity_check` sul backup prima di restore, collisione timestamp se due backup nello stesso secondo, `.xlsx` orfano (senza `.db` associato) non ripulito dalla retention. |
 | F5 UI React | ☑ fatto (2026-07-16) | Sviluppato con subagent-driven-development (10 task, react-ui-agent), branch `f5-ui-react`, **mergiato su master 2026-07-16 (PR#1, merge commit 7fdeb00)**. Backend (Task 1-4): router `GET/PUT/DELETE /transactions` (PATCH limitato a comment/tag/category_id, mai hash_dedup), `GET/PATCH /accounts`, `GET /insights` (trend mensile, breakdown categoria, saldo cumulato, saldo per conto), montati in main.py. Frontend (Task 5-9): scaffold Vite+React+TS+TanStack Query+React Router+Tailwind v3+Recharts (Tailwind pinnato a v3.4.19, baseUrl omesso da tsconfig.app.json per incompatibilità TS 6/TS5101 — deviazioni verificate e confermate corrette in review), 6 pagine (Dashboard, Transazioni, Import, Categorie pending, Conti, Backup) con read+write reale su FastAPI, conferma esplicita a 2 step per le operazioni distruttive (delete transazione, restore backup — verificato che nessun code path bypassa il click di conferma). Ogni task review-clean (0 Critical, Important residui solo su hardening non bloccante, es. tipizzazione PUT body). Integrazione Docker (Task 10): `backend/Dockerfile` riscritto multi-stage (stage `frontend-build` con `npm ci && npm run build`, stage runtime Python copia `frontend_dist`), `docker-compose.yml` build context esteso a root, `backend/app/main.py` serve la SPA su `/` con fallback client-side routing per path non-API, `.dockerignore` aggiunto. Verifica E2E reale eseguita in questa sessione (non solo build): `docker compose build backend && docker compose up -d` → `pp-backend`+`pp-metabase` healthy; suite pytest completa 35/35 passing; verifica browser live su `http://localhost:8000` (container di produzione, non dev server): tutte le 6 pagine navigate via sidebar con dati reali (331 transazioni da F2), **hard refresh diretto su `/transazioni` conferma il fallback SPA (nessun 404)**, `/docs` Swagger UI raggiungibile, Metabase su `:3000` raggiungibile e invariata (pagina di login normale, ADR-0004/ADR-0019 rispettati), zero errori console in tutti i test. Review finale whole-branch (opus) ha trovato 2 Important (gate dry-run storico bypassabile cambiando file; mutation silenziose senza feedback errore) — entrambi fixati (commit 7e9cd67) e ri-verificati (re-review + test live) prima del merge. Bug dev-only scoperto (non blocca produzione, tracciato come DEBT-04): il proxy Vite dev fa match per prefisso su `/import`, quindi una navigazione diretta/reload su `http://localhost:5173/import` (non un click sidebar) ritorna 404 dal backend invece della SPA — non riproducibile in produzione perché FastAPI fa match per path esatto. Stato dettagliato, ledger task-per-task ed evidenze complete: `.superpowers/sdd/progress.md`. |
 | F-DEBT Risoluzione debito tecnico F5 | ☑ fatto (2026-07-16) | Tutti e 5 i task chiusi, registro storico consolidato in ADR-0020/0021/0022 (`docs/TECH-DEBT.md` dismesso dopo chiusura). DEBT-05 (worktree stale): `rm -rf .git/worktrees/f4-backup` + prune, nessun warning residuo. DEBT-03 (versione React): piano riconciliato (react@^19.2.7 vs "React 18" citato). DEBT-01 (tiebreaker pagination): `Transaction.id.desc()` aggiunto dopo `date.desc()` in `list_transactions`, test di regressione (5 righe stessa data, 3 pagine, zero duplicati/omissioni), suite 36/36. DEBT-02 (favicon prod): route esplicita `/favicon.svg` in `main.py` prima del catch-all SPA, `icons.svg` morto rimosso; verificato live post-rebuild (`/favicon.svg` → 200 image/svg+xml, `/transazioni` fallback invariato). DEBT-04 (proxy Vite dev): verificati tutti i path proxati per collisione bare-path vs pagina SPA (solo `/import`/`/backup` colpiti) — `/import` ristretto a sotto-path reali, `/backup` risolto con `bypass` su `Accept` header (text/html→SPA, application/json→proxy); verificato live reload diretto su entrambi + chiamata reale "Backup ora" attraverso il bypass. ADR-0020/0021/0022. Nessuna modifica di schema in tutta la fase. |
-| F6 Plugin AI | ☐ da fare | — |
+| F6 Plugin AI | ◐ in corso (design chiuso 2026-07-18) | Spec rev. 2 riallineata al codice reale: 7 incoerenze trovate e risolte, 2 bloccanti (**I1** la spec introduceva `GEMINI_API_KEY` mentre `config.py:24-25` e `.env.example:28-31` hanno da F0 `AI_API_KEY`/`AI_PROVIDER` provider-agnostiche → si usano quelle + nuova `AI_MODEL`; **I2** le 4 funzioni di aggregazione di `routers/insights.py:19-73` non accettano alcun filtro e `GET /insights` non ha query param → estrazione in `services/insights.py` con filtri opzionali, retrocompatibile). Altre 5: nessun cap su volume dati/iterazioni/timeout verso il provider; nome modello ed endpoint Gemini dichiarati "non validati" nella rev. 1 → **verificati 2026-07-18 su ai.google.dev** (SDK `google-genai`, Interactions API GA `client.interactions.create()`, function calling a loop manuale con `call_id` propagato); router `/ai` da montare prima del catch-all SPA (trappola ADR-0021); proxy Vite senza `/ai`; nessun sottoagente AI e version/phase string ferme a F5. Decisioni utente: transazioni grezze **con** `comment`/`tag` (trade-off privacy esplicito, `SECURITY.md`), service layer con filtri, modello di default sulla linea *flash-lite* GA (economico, dataset di poche centinaia di righe), esecuzione in Subagent-Driven Development. ADR-0023 scritto prima del codice. Deliverable di design: spec rev. 2, ADR-0023, sezione egress in SECURITY.md, `.claude/agents/ai-agent.md`, piano `docs/superpowers/plans/2026-07-18-f6-ai-nl-query.md`. **Nessun codice scritto in questa sessione.** |
 | F7 Raspberry arm64 | ☐ da fare | — |
 
 Legenda: ☐ da fare · ◐ in corso · ☑ fatto/verificato.
@@ -296,16 +319,25 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
-Fase corrente: F6 (F-DEBT completata 2026-07-16 — F5 completata e MERGIATA su master
-2026-07-16, PR#1, merge commit 7fdeb00). F5 = UI React (Subagent-Driven Development,
-piano docs/superpowers/plans/2026-07-15-f5-react-ui.md), tutti i 10 task review-clean +
-review finale whole-branch (2 Important fixati e ri-verificati), verifica E2E reale
-(build Docker, 35/35 test, navigazione browser 6 pagine su container produzione :8000,
-hard refresh /transazioni conferma fallback SPA, Metabase invariata su :3000).
-F-DEBT: tutti e 5 i debiti tecnici chiusi (registro dismesso, dettaglio in ADR-0020/0021/0022).
-Dettaglio F5 task-per-task ed evidenze complete: .superpowers/sdd/progress.md.
-Sottoagente react-ui-agent (`.claude/agents/react-ui-agent.md`) resta disponibile per
-manutenzione F5 futura.
+Fase corrente: F6 — DESIGN CHIUSO 2026-07-18, IMPLEMENTAZIONE DA FARE (nessun codice scritto).
+F0-F5 + F-DEBT completate e mergiate su master (F5: PR#1, merge commit 7fdeb00).
+
+Per implementare F6, leggi in quest'ordine:
+  1. docs/DECISIONS.md → ADR-0023 (decisioni vincolanti del layer AI)
+  2. docs/superpowers/specs/2026-07-18-f6-ai-nl-query-design.md (rev. 2, allineata al codice)
+  3. docs/superpowers/plans/2026-07-18-f6-ai-nl-query.md (piano task-per-task, esegui questo)
+Esecuzione: Subagent-Driven Development (come F5), sottoagente `ai-agent`.
+
+F6 in breve: POST /ai/query + settima pagina React "Assistente AI" su /assistente-ai.
+Adapter provider-agnostico, unico adapter Gemini (SDK google-genai, Interactions API,
+function calling a loop MANUALE). Tool registry READ-ONLY: il modello non deve mai poter
+scrivere. Stateless: nessuna Alembic revision. Config: AI_PROVIDER/AI_API_KEY (già esistenti
+da F0, NON usare GEMINI_API_KEY) + AI_MODEL nuova. Prerequisito Task 1: estrarre le 4 funzioni
+di aggregazione da routers/insights.py a services/insights.py aggiungendo filtri opzionali,
+mantenendo GET /insights identico a oggi.
+Trappole note: montare il router /ai PRIMA del catch-all SPA in main.py (ADR-0021); aggiungere
+/ai al proxy in vite.config.ts; bump version/phase da 5 a 6 in main.py.
+
 Regole sempre valide: no schema change senza alembic revision; no secret committato;
 dubbi → chiedi; PUT /transactions/{id} edita SOLO comment/tag/category_id (mai hash_dedup).
 Ciclo fase: best practice → sottoagente dominio → ADR in DECISIONS.md → implementa →
