@@ -37,6 +37,11 @@ export default defineConfig({
         },
       },
       '/health': 'http://localhost:8000',
+      // '/ai': prefisso API per POST /ai/query (F6). La pagina SPA e' su
+      // '/assistente-ai', stringa diversa che non inizia per '/ai' (il secondo
+      // carattere e' 's', non 'i') -> nessuna collisione per prefisso come in
+      // ADR-0022, non serve il pattern bypass usato per '/backup'.
+      '/ai': 'http://localhost:8000',
     },
   },
   build: { outDir: 'dist' },

@@ -8,6 +8,7 @@ const links = [
   { to: '/categorie-pending', label: 'Categorie pending' },
   { to: '/conti', label: 'Conti' },
   { to: '/backup', label: 'Backup' },
+  { to: '/assistente-ai', label: 'Assistente AI' },
 ]
 
 export function Sidebar() {
