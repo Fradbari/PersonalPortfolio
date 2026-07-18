@@ -167,17 +167,32 @@ def test_query_returns_422_when_question_field_missing():
 
 
 def test_ai_query_route_is_registered_before_spa_catchall_in_real_app():
-    # Verifica sull'app reale assemblata da app.main (stesso ordine di
-    # registrazione di produzione). Nessun frontend_dist buildato in questo
-    # ambiente di test: se la route POST /ai/query non fosse registrata affatto
-    # (o cadesse dietro un catch-all), una GET sullo stesso path darebbe 404
-    # ("nessuna route su questo path"). Il fatto che dia 405 (Method Not
-    # Allowed) prova che il path e' effettivamente nella route table per POST —
-    # esattamente la garanzia che ADR-0021 richiede sull'ordine di montaggio.
+    # Verifica DIRETTA sulla route table dell'app reale assemblata da
+    # app.main (stesso ordine di registrazione di produzione), senza fare
+    # nessuna richiesta HTTP — cosi' non dipende da quale ramo di main.py e'
+    # attivo in questo processo (con o senza frontend_dist buildato) e non
+    # rischia mai di innescare una chiamata di rete reale se un giorno questo
+    # processo girasse con una chiave AI vera configurata.
+    #
+    # Regressione reale scoperta in E2E Docker (frontend_dist presente,
+    # quindi il catch-all `GET /{full_path:path}` e' registrato): una prima
+    # versione di questo test faceva `GET /ai/query` e assumeva 405 (Method
+    # Not Allowed) come prova che il path fosse in tabella per POST. Ma
+    # quando il catch-all esiste, una GET su QUALSIASI path da' 200 (serve
+    # index.html, comportamento F5 corretto e voluto per il client-side
+    # routing) — non 405. L'assunzione 405 valeva solo nell'ambiente locale
+    # senza frontend_dist, dove il catch-all non e' mai registrato. La vera
+    # garanzia richiesta da ADR-0021 e' sull'ORDINE di registrazione, non su
+    # un particolare status HTTP osservabile dall'esterno (che cambia a
+    # seconda di quale ramo di main.py e' attivo) — quindi va verificata
+    # ispezionando `app.routes` direttamente, unico modo che funziona
+    # identico in entrambi gli ambienti (con e senza frontend_dist).
     from app.main import app as real_app
 
-    real_client = TestClient(real_app)
+    routes = real_app.routes
+    ai_indexes = [i for i, r in enumerate(routes) if getattr(r, "path", None) == "/ai/query"]
+    assert ai_indexes, "POST /ai/query non registrata nell'app reale"
 
-    resp = real_client.get("/ai/query")
-
-    assert resp.status_code == 405
+    catchall_indexes = [i for i, r in enumerate(routes) if getattr(r, "path", None) == "/{full_path:path}"]
+    if catchall_indexes:  # presente solo se frontend_dist esiste (build di produzione/Docker)
+        assert ai_indexes[0] < min(catchall_indexes)
