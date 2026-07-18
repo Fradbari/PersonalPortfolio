@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # AI (Fase 6)
     ai_api_key: str = ""
     ai_provider: str = ""
+    ai_model: str = "gemini-3.1-flash-lite"
 
     # Import
     import_min_year: int = 2026
