@@ -288,6 +288,22 @@ def test_gemini_provider_wraps_transport_errors_as_provider_error(monkeypatch):
         fake_provider.answer("ciao", session=None)
 
 
+def test_gemini_provider_malformed_step_becomes_provider_error_not_raw_attribute_error(monkeypatch):
+    # Regressione (review Task 3): uno step di forma inattesa (es. un futuro
+    # drift dell'SDK che rimuove/rinomina un campo) deve diventare
+    # AIProviderError, mai un AttributeError/TypeError grezzo propagato fuori
+    # da answer() — la docstring del modulo promette esplicitamente questo.
+    _configure_valid_settings(monkeypatch)
+
+    malformed_step = SimpleNamespace(type="function_call", name="get_accounts")  # niente .id / .arguments
+    malformed_interaction = SimpleNamespace(id="interaction-1", output_text="", steps=[malformed_step])
+    fake_client = _FakeClient([malformed_interaction])
+    fake_provider = GeminiProvider(client_factory=lambda: fake_client)
+
+    with pytest.raises(AIProviderError):
+        fake_provider.answer("ciao", session=None)
+
+
 def test_gemini_provider_unknown_tool_name_reported_as_error_not_a_crash(monkeypatch):
     _configure_valid_settings(monkeypatch)
 

@@ -113,24 +113,32 @@ class GeminiProvider(AIProvider):
                 create_kwargs["previous_interaction_id"] = previous_interaction_id
 
             try:
+                # L'intera lettura della risposta (chiamata di rete + accesso alla
+                # forma di `interaction`/`step`) e' nello stesso try: sia un
+                # fallimento HTTP/SDK sia una futura divergenza di forma dell'SDK
+                # (AttributeError/TypeError su un campo mancante o diverso) devono
+                # diventare `AIProviderError`, mai propagare grezzi fuori da
+                # `answer()` (vedi docstring di modulo). L'esecuzione dei tool
+                # (`_execute_tool`, sotto) resta fuori da questo blocco: ha una
+                # propria gestione errori in-band, non deve rientrare qui.
                 interaction = client.interactions.create(**create_kwargs)
-            except Exception as exc:  # noqa: BLE001 - qualunque errore SDK/HTTP diventa un errore di dominio
-                raise AIProviderError(f"chiamata al provider Gemini fallita: {exc}") from exc
+                output_text = getattr(interaction, "output_text", None)
+                steps = getattr(interaction, "steps", None) or []
+                function_call_steps = [
+                    step for step in steps if getattr(step, "type", None) == "function_call"
+                ]
+                call_specs = [(step.name, step.id, dict(step.arguments or {})) for step in function_call_steps]
+            except Exception as exc:  # noqa: BLE001 - qualunque errore di rete/SDK o di forma della risposta diventa un errore di dominio
+                raise AIProviderError(f"chiamata al provider Gemini fallita o risposta in forma inattesa: {exc}") from exc
 
-            output_text = getattr(interaction, "output_text", None)
             if output_text:
                 last_text = output_text
-            steps = getattr(interaction, "steps", None) or []
-            function_call_steps = [step for step in steps if getattr(step, "type", None) == "function_call"]
 
             if not function_call_steps:
                 return AIAnswer(text=last_text, tool_calls=tool_calls, truncated=False)
 
             function_result_input: list[dict] = []
-            for step in function_call_steps:
-                name = step.name
-                call_id = step.id
-                raw_args = dict(step.arguments or {})
+            for name, call_id, raw_args in call_specs:
                 result, result_summary = self._execute_tool(name, raw_args, session)
                 tool_calls.append(ToolCall(name=name, args=raw_args, result_summary=result_summary))
                 function_result_input.append(
