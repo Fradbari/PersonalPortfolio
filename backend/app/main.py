@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routers import accounts, backup, categories, imports, insights, transactions
+from app.routers import accounts, ai, backup, categories, imports, insights, transactions
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Personal Portfolio", version="0.1.0-phase5", lifespan=lifespan)
+app = FastAPI(title="Personal Portfolio", version="0.1.0-phase6", lifespan=lifespan)
 
 app.include_router(imports.router)
 app.include_router(categories.router)
@@ -36,12 +36,13 @@ app.include_router(backup.router)
 app.include_router(transactions.router)
 app.include_router(accounts.router)
 app.include_router(insights.router)
+app.include_router(ai.router)
 
 
 @app.get("/health")
 def health():
     """Healthcheck usato da Docker (ADR: one-click)."""
-    return {"status": "ok", "phase": "5", "db_path": settings.db_path}
+    return {"status": "ok", "phase": "6", "db_path": settings.db_path}
 
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend_dist")

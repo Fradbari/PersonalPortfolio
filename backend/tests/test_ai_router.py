@@ -1,0 +1,183 @@
+"""Test per `app/routers/ai.py` — endpoint `POST /ai/query` (F6, ADR-0023).
+
+Unico mock ammesso: `AIProvider` (ADR-0018 p.7). Qui iniettiamo un `AIProvider`
+fake deterministico via `dependency_overrides` (mai il client Gemini reale, mai
+rete) — il DB resta reale (SQLite in-memory di test), stesso pattern di
+`test_insights.py`. Il fake vive in questo file, non in `app/ai/provider.py`
+(quel modulo ha gia' il proprio `_FakeProvider` di contratto in
+`test_ai_provider.py`; qui serve un fake diverso per riga di test, non un
+singolo fake condiviso)."""
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.ai.provider import AIAnswer, AIProvider, AIProviderError, AIProviderNotConfigured, ToolCall
+from app.db import Base, get_session
+from app.routers import ai as ai_router
+
+
+def _build_test_app(fake_provider: AIProvider | None = None):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    # StaticPool: stesso motivo di test_insights.py — un'unica connessione
+    # in-memory condivisa fra il thread di test e il thread pool di FastAPI.
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
+    )
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, future=True)
+
+    def override_get_session():
+        session = Session()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app = FastAPI()
+    app.include_router(ai_router.router)
+    app.dependency_overrides[get_session] = override_get_session
+    if fake_provider is not None:
+        app.dependency_overrides[ai_router.get_ai_provider] = lambda: fake_provider
+    return TestClient(app)
+
+
+class _HappyProvider(AIProvider):
+    def answer(self, question: str, session) -> AIAnswer:
+        return AIAnswer(
+            text=f"risposta a: {question}",
+            tool_calls=[ToolCall(name="get_accounts", args={}, result_summary="2 conti")],
+            truncated=False,
+        )
+
+
+class _NotConfiguredProvider(AIProvider):
+    def answer(self, question: str, session) -> AIAnswer:
+        raise AIProviderNotConfigured("AI_PROVIDER non configurato")
+
+
+class _RuntimeErrorProvider(AIProvider):
+    def answer(self, question: str, session) -> AIAnswer:
+        raise AIProviderError("timeout simulato verso il provider")
+
+
+# --- 200: risposta popolata, tool_calls tracciati -------------------------------
+
+
+def test_query_returns_200_with_answer_and_tools_used():
+    client = _build_test_app(fake_provider=_HappyProvider())
+
+    resp = client.post("/ai/query", json={"question": "quanti conti ho?"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["answer"] == "risposta a: quanti conti ho?"
+    assert body["truncated"] is False
+    assert body["tools_used"] == [{"name": "get_accounts", "args": {}, "result_summary": "2 conti"}]
+
+
+def test_query_propagates_truncated_flag():
+    class _TruncatedProvider(AIProvider):
+        def answer(self, question: str, session) -> AIAnswer:
+            return AIAnswer(text="parziale", tool_calls=[], truncated=True)
+
+    client = _build_test_app(fake_provider=_TruncatedProvider())
+
+    resp = client.post("/ai/query", json={"question": "domanda lunga"})
+
+    assert resp.status_code == 200
+    assert resp.json()["truncated"] is True
+
+
+# --- 400: provider non configurato, messaggio esplicito -------------------------
+
+
+def test_query_returns_400_when_provider_not_configured():
+    client = _build_test_app(fake_provider=_NotConfiguredProvider())
+
+    resp = client.post("/ai/query", json={"question": "quanto ho speso?"})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == (
+        "layer AI non configurato: imposta AI_PROVIDER, AI_API_KEY, AI_MODEL in .env"
+    )
+
+
+def test_query_returns_400_when_real_get_ai_provider_dependency_is_unconfigured(monkeypatch):
+    # Nessun override di get_ai_provider qui: esercita il vero dispatch
+    # (app.ai.provider.get_provider(), chiamato dalla dependency reale del router)
+    # con AI_PROVIDER vuoto — copre il percorso di produzione reale, non solo il
+    # fake iniettato nei test sopra (quel ramo altrimenti resterebbe non testato).
+    import app.ai.provider as provider_module
+
+    monkeypatch.setattr(provider_module.settings, "ai_provider", "")
+    client = _build_test_app(fake_provider=None)
+
+    resp = client.post("/ai/query", json={"question": "quanto ho speso?"})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == (
+        "layer AI non configurato: imposta AI_PROVIDER, AI_API_KEY, AI_MODEL in .env"
+    )
+
+
+# --- 502: errore runtime del provider --------------------------------------------
+
+
+def test_query_returns_502_when_provider_raises_runtime_error():
+    client = _build_test_app(fake_provider=_RuntimeErrorProvider())
+
+    resp = client.post("/ai/query", json={"question": "quanto ho speso?"})
+
+    assert resp.status_code == 502
+    assert "timeout simulato" in resp.json()["detail"]
+
+
+# --- 422: domanda vuota / solo whitespace ----------------------------------------
+
+
+def test_query_returns_422_for_empty_question():
+    client = _build_test_app(fake_provider=_HappyProvider())
+
+    resp = client.post("/ai/query", json={"question": ""})
+
+    assert resp.status_code == 422
+
+
+def test_query_returns_422_for_whitespace_only_question():
+    client = _build_test_app(fake_provider=_HappyProvider())
+
+    resp = client.post("/ai/query", json={"question": "   "})
+
+    assert resp.status_code == 422
+
+
+def test_query_returns_422_when_question_field_missing():
+    client = _build_test_app(fake_provider=_HappyProvider())
+
+    resp = client.post("/ai/query", json={})
+
+    assert resp.status_code == 422
+
+
+# --- ordine di montaggio: la route non deve cadere nel catch-all SPA ------------
+
+
+def test_ai_query_route_is_registered_before_spa_catchall_in_real_app():
+    # Verifica sull'app reale assemblata da app.main (stesso ordine di
+    # registrazione di produzione). Nessun frontend_dist buildato in questo
+    # ambiente di test: se la route POST /ai/query non fosse registrata affatto
+    # (o cadesse dietro un catch-all), una GET sullo stesso path darebbe 404
+    # ("nessuna route su questo path"). Il fatto che dia 405 (Method Not
+    # Allowed) prova che il path e' effettivamente nella route table per POST —
+    # esattamente la garanzia che ADR-0021 richiede sull'ordine di montaggio.
+    from app.main import app as real_app
+
+    real_client = TestClient(real_app)
+
+    resp = real_client.get("/ai/query")
+
+    assert resp.status_code == 405
