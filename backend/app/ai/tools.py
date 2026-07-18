@@ -23,7 +23,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Account, Category, Transaction
@@ -71,7 +71,18 @@ def list_transactions(
     if date_to is not None:
         stmt = stmt.where(Transaction.date <= date_to)
     if category is not None:
-        stmt = stmt.where(Transaction.category_raw == category)
+        # `category` puo' arrivare in due domini distinti (riconciliazione categorie,
+        # vedi CategoryPending/CategoryMap in models.py): il nome canonico restituito
+        # da get_categories() (Category.name) oppure il nome raw della fonte
+        # (Transaction.category_raw, quello che il modello vede in category_breakdown
+        # di get_insights). Devono combaciare entrambi, altrimenti transazioni con
+        # categoria gia' riconciliata spariscono silenziosamente dal risultato.
+        stmt = stmt.where(
+            or_(
+                Transaction.category_raw == category,
+                Transaction.category_id.in_(select(Category.id).where(Category.name == category)),
+            )
+        )
     if account is not None:
         stmt = stmt.where(Transaction.account == account)
     if amount_min is not None:
@@ -185,7 +196,10 @@ def tool_declarations() -> list[dict]:
                     },
                     "category": {
                         "type": "string",
-                        "description": "Nome categoria as-is dalla fonte (vedi get_categories).",
+                        "description": (
+                            "Nome categoria: canonico (da get_categories) oppure nome raw della "
+                            "fonte (come appare in category_breakdown di get_insights)."
+                        ),
                     },
                     "account": {
                         "type": "string",

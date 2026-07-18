@@ -135,6 +135,44 @@ def test_list_transactions_category_filter():
     assert result["rows"][0]["account"] == "secondario"
 
 
+def test_list_transactions_category_filter_matches_canonical_and_raw_domains():
+    # Regression: `category_raw` (dominio fonte) e `Category.name` (dominio canonico,
+    # quello restituito da get_categories) divergono non appena una categoria pending
+    # viene riconciliata (vedi CategoryPending/CategoryMap in models.py) — category_raw
+    # resta per sempre il testo originale, mentre category_id punta al canonico. Il
+    # filtro deve accettare entrambi, altrimenti le transazioni gia' riconciliate
+    # spariscono silenziosamente dal risultato.
+    Session = _build_test_session()
+    with Session() as session:
+        category = Category(name="Alimentari")
+        session.add(category)
+        session.flush()
+        session.add_all(
+            [
+                Transaction(
+                    date=datetime(2026, 3, 1), amount=42.0, type="expense",
+                    category_raw="spesa alimentare", category_id=category.id,
+                    account="principale", source="my_finance", hash_dedup="rec-1",
+                ),
+                Transaction(
+                    date=datetime(2026, 3, 2), amount=15.0, type="expense",
+                    category_raw="Trasporti", account="principale", source="my_finance",
+                    hash_dedup="rec-2",
+                ),
+            ]
+        )
+        session.commit()
+
+    with Session() as session:
+        by_canonical_name = list_transactions(session, category="Alimentari")
+        by_raw_label = list_transactions(session, category="spesa alimentare")
+
+    for result in (by_canonical_name, by_raw_label):
+        assert result["total_matching"] == 1
+        assert result["rows"][0]["category_raw"] == "spesa alimentare"
+        assert result["rows"][0]["amount"] == 42.0
+
+
 def test_list_transactions_account_filter():
     Session = _build_test_session()
     _seed(Session)
