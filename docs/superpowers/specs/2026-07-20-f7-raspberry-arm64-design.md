@@ -18,10 +18,11 @@ Fatti raccolti dall'utente (2026-07-20):
   (questa sessione, verificabile da desktop) e una parte di verifica su hardware (sessione
   futura, checklist già pronta). La fase resta **◐ in corso** finché la checklist hardware non
   è eseguita sul Pi reale.
-- **Distribuzione immagini: build nativa sul Pi** (git clone + `docker compose build`).
-  Nessun registry, nessun login, coerente con one-click (N-NF1) e no lock-in (N-NF3). Il
-  costo è una build lenta una tantum sul Pi (accettato). La cross-build QEMU da desktop
-  resta come **pre-verifica**, non come canale di distribuzione.
+- **Distribuzione immagini: build nativa sul Pi** (git clone + comando standard
+  `docker compose up -d --build`, lo stesso di ogni aggiornamento). Nessun registry,
+  nessun login, coerente con one-click (N-NF1) e no lock-in (N-NF3). Il costo è una build
+  lenta una tantum sul Pi (accettato). La cross-build QEMU da desktop resta come
+  **pre-verifica**, non come canale di distribuzione.
 - **Metabase: misura-poi-decidi** (conferma dell'alternativa già aperta da ADR-0004/0016).
   Deploy completo sul Pi, misura di RAM/CPU/tempo di avvio, decisione keep/skip con dati.
 - **Topologia compose: un solo `docker-compose.yml`, tuning universale.** I parametri
@@ -96,8 +97,12 @@ Tre check deterministici, in ordine di costo — non ispezione di log a occhio:
 1. **Wheel check fail-fast** (secondi, senza QEMU):
    `pip download --only-binary=:all: --platform manylinux2014_aarch64 --python-version 3.12
    -r backend/requirements.txt -d <tmp>` — fallisce con errore esplicito alla prima
-   dipendenza (diretta o transitiva) priva di wheel aarch64. Ciò che qui compila da
-   sorgente, sul Pi diventerebbe ore di build: va scoperto ora.
+   dipendenza (diretta o transitiva) priva di wheel aarch64. **Scelta conservativa
+   intenzionale**: il criterio è più forte del requisito reale (un sdist puro-Python
+   installerebbe comunque in tempi accettabili) — se il check fallisce su un pacchetto
+   puro-Python, si valuta il caso e lo si documenta come eccezione, non si allenta il
+   gate. Il rischio vero da intercettare è la compilazione nativa pesante (C/Rust), che
+   sul Pi diventerebbe ore di build.
 2. **Build arm64 eseguibile**: `docker buildx build --platform linux/arm64 --load` produce
    un'immagine arm64 caricata nel daemon locale (non un log da interpretare: o l'immagine
    esiste ed è taggata, o il gate fallisce).
@@ -115,9 +120,12 @@ Tre check deterministici, in ordine di costo — non ispezione di log a occhio:
 
 - `metabase`: `JAVA_OPTS=-Xmx1g`; limite memoria 2GB; healthcheck completo atteso
   (tarabile nel piano senza nuovo ADR): `interval: 30s`, `timeout: 15s`, `retries: 10`,
-  `start_period: 600s` — su Pi la JVM impiega minuti; su desktop `start_period` non
-  ritarda un avvio sano, e `retries` alto evita falsi `unhealthy` sotto carico;
-  `logging` json-file `max-size: 10m`, `max-file: 3`.
+  `start_period: 900s` — su Pi la JVM impiega minuti; su desktop `start_period` non
+  ritarda un avvio sano, e `retries` alto evita falsi `unhealthy` sotto carico.
+  **Margine intenzionale** rispetto alla soglia di accettazione ADR-0025 (avvio ≤ 10
+  min): il healthcheck (tuning tecnico, 15 min) è più permissivo del criterio di qualità
+  (10 min) — un avvio da 11 minuti viene misurato e bocciato dal protocollo, non ucciso
+  dal healthcheck a metà misura. `logging` json-file `max-size: 10m`, `max-file: 3`.
 - `backend`: healthcheck completo atteso: `interval: 30s`, `timeout: 10s`, `retries: 5`,
   `start_period: 90s`; `logging` cap analogo; nessun limite di memoria (Python leggero,
   non serve — YAGNI).
