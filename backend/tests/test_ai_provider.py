@@ -9,6 +9,7 @@ registry (quelli restano testati su DB reale, vedi test_ai_tools.py)."""
 from __future__ import annotations
 
 import inspect
+import json
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -249,6 +250,36 @@ def test_gemini_provider_answer_coerces_date_string_args_to_datetime(monkeypatch
     assert captured_args["date_from"] == datetime(2026, 1, 1)
     assert isinstance(captured_args["date_to"], datetime)
     assert captured_args["date_to"] == datetime(2026, 1, 31)
+
+
+def test_gemini_provider_malformed_date_arg_is_in_band_error_not_a_crash(monkeypatch):
+    # Regressione (review finale, "mai un 500 non gestito", ADR-0023 p.8): un
+    # flash-lite puo' emettere date non valide ("2026-13-01", "not-a-date", ecc.).
+    # `datetime.fromisoformat` solleva ValueError: deve diventare lo stesso
+    # risultato in-band di un tool che fallisce, non un'eccezione che sfugge da
+    # answer() (il router mappa solo AIProviderError, tutto il resto e' un 500
+    # generico non gestito).
+    _configure_valid_settings(monkeypatch)
+
+    responses = [
+        _function_call_interaction("list_transactions", {"date_from": "not-a-date"}, call_id="call-1"),
+        _text_interaction("nessuna transazione trovata, data non valida segnalata"),
+    ]
+    fake_client = _FakeClient(responses)
+    fake_provider = GeminiProvider(client_factory=lambda: fake_client)
+
+    result = fake_provider.answer("quanto ho speso il not-a-date?", session=None)
+
+    assert result.text == "nessuna transazione trovata, data non valida segnalata"
+    assert result.tool_calls[0].name == "list_transactions"
+    assert "errore" in result.tool_calls[0].result_summary.lower()
+
+    # Il modello deve vedere l'errore in-band nel function_result, non un crash.
+    second_call_input = fake_client.interactions.calls[1]["input"]
+    function_result = second_call_input[0]
+    assert function_result["type"] == "function_result"
+    result_payload = json.loads(function_result["result"][0]["text"])
+    assert "error" in result_payload
 
 
 def test_gemini_provider_answer_hits_iteration_cap_and_marks_truncated(monkeypatch):
