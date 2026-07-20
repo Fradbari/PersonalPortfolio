@@ -512,6 +512,72 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   `comment`/`tag` lasciano la rete locale (punto 9), scelta esplicita dell'utente e reversibile
   restringendo il tool `list_transactions` senza toccare il resto dell'architettura.
 
+## ADR-0024 — Strategia arm64 (F7): build nativa sul Pi, pre-verifica QEMU fail-fast, compose unico universale
+
+- Status: Accepted — Fase: F7 — Data: 2026-07-20
+- Contesto: F7 implementa N-NF2 (portabilità `linux/arm64`). Fatti raccolti dall'utente
+  (2026-07-20): target **Raspberry Pi 4, 4GB RAM**, non ancora disponibile (verifica hardware
+  rimandata a sessione futura); nessuna preferenza per registry di immagini. Ricerca best
+  practice: QEMU è 5-20x più lento del nativo (adeguato come verifica one-off, non come canale
+  di build ricorrente); per Python non serve cross-compilation se tutte le dipendenze hanno
+  wheel `manylinux aarch64`; log Docker illimitati usurano/riempiono la SD; healthcheck senza
+  `start_period` adeguato marca `unhealthy` una JVM che su Pi 4 impiega minuti ad avviarsi.
+  Spec: `docs/superpowers/specs/2026-07-20-f7-raspberry-arm64-design.md` (rev. 3).
+- Decisione:
+  1. **Canale di distribuzione = build nativa sul Pi**: `git clone` + comando standard
+     `docker compose up -d --build` (identico per primo bootstrap e aggiornamenti — build
+     no-op se nulla è cambiato, mai immagini stale). Nessun registry, nessun login (N-NF1,
+     N-NF3). Costo accettato: prima build lenta sul Pi, una tantum.
+  2. **Pre-verifica QEMU da desktop come gate di fase, fail-fast e deterministico** (non
+     ispezione di log): (a) wheel check `pip download --only-binary=:all: --platform
+     manylinux2014_aarch64` su `requirements.txt` — scelta conservativa intenzionale, il
+     rischio da intercettare è la compilazione nativa C/Rust che sul Pi diventerebbe ore;
+     (b) `docker buildx build --platform linux/arm64 --load` deve produrre un'immagine
+     eseguibile; (c) smoke test del container emulato (`/health` 200, import moduli).
+  3. **Un solo `docker-compose.yml`, tuning universale** (niente override, niente profiles):
+     limiti/healthcheck/logging calibrati per il Pi ma innocui su desktop. Milestone
+     letterale: stesso comando, stesso file, entrambe le architetture. Log rotation
+     esplicita per-servizio nel compose (`json-file`, `max-size`/`max-file`) — nessun
+     intervento su `daemon.json` del Pi (one-click).
+  4. Healthcheck attesi (tarabili senza nuovo ADR): backend `30s/10s/5/90s`
+     (interval/timeout/retries/start_period), metabase `30s/15s/10/900s`.
+- Conseguenze: nessun servizio o meccanismo nuovo; la fase produce tuning compose, runbook e
+  verifica emulata. F7 resta ◐ finché la checklist hardware non gira sul Pi reale. Rischio
+  residuo: QEMU valida l'avvio ma non le performance — i numeri veri (tempi build/avvio,
+  RAM) arrivano solo dall'hardware.
+
+## ADR-0025 — Metabase su Raspberry Pi 4 4GB (F7): misura-poi-decidi con protocollo e soglie fissate prima, esito come raccomandazione operativa (Modello A)
+
+- Status: Accepted — Fase: F7 — Data: 2026-07-20
+- Contesto: ADR-0004/0016 lasciano aperta l'alternativa "se Metabase pesa troppo su Raspberry,
+  skip + UI React". Su Pi 4 4GB la JVM è il carico dominante (doc Metabase: lasciare 1-2GB al
+  resto del sistema). L'utente ha scelto di **misurare sul hardware reale prima di decidere**.
+  Vincolo architetturale: la milestone F7 è "stesso `docker compose up`" — uno skip che
+  introduce file/comandi alternativi contraddirebbe la fase (tensione rilevata in review
+  della spec e risolta qui).
+- Decisione:
+  1. **Tuning preventivo universale** nel compose unico: `JAVA_OPTS=-Xmx1g`, limite memoria
+     container 2GB.
+  2. **Protocollo di misura ripetibile** (definizioni operative nel runbook
+     `docs/RASPBERRY-PI.md`): tempo di avvio = dal ritorno del comando standard al container
+     `healthy` (soglia ≤ 10 min, con margine intenzionale sotto lo `start_period` di 900s:
+     il healthcheck non deve uccidere una misura borderline che spetta al protocollo
+     bocciare); RAM steady-state = media di 3 letture `docker stats --no-stream` a 1 min di
+     distanza, iniziate 5 min dopo il primo login, senza import in corso (soglia ≤ 1.5GB);
+     query dashboard F3 "Personal Portfolio - Overview": cold registrata come informativa,
+     **warm < 10s** è la soglia; stabilità = nessun OOM-kill in 24h (`docker events`,
+     `dmesg`).
+  3. **Modello A per l'esito**: la milestone si valida SEMPRE col full stack e col comando
+     standard. Se una soglia sfora, l'esito è una **raccomandazione operativa
+     post-validazione** — `docker compose stop metabase` (riattivabile con `start`), UI
+     React come dashboard quotidiana — non una topologia alternativa, nessun file/comando
+     diverso, nessun nuovo ADR per l'esito (già previsto qui); esito registrato nello Stato
+     avanzamento di ARCHITECTURE.md.
+- Conseguenze: decisione sul campo con dati ripetibili invece che a sensazione; nessuna
+  biforcazione di topologia da mantenere; se skip, Metabase resta nel compose (riattivabile
+  su hardware futuro più capace) e ADR-0004 resta valido su desktop. Rischio accettato:
+  finché la misura non avviene, il comportamento reale su Pi è una stima.
+
 ## ADR-0016 — Versione Metabase pinnata reale: `v0.62.4` (specializza ADR-0004)
 - Status: Accepted — Fase: F3 (scaffolding) — Data: 2026-07-14
 - Contesto: ADR-0004 fissa la policy (replica read-only, immagine pinnata, mai `latest`) ma usa `v0.50.30`
