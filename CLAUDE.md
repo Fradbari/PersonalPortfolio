@@ -26,13 +26,13 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
 ## Mappa fasi (dettaglio + stato vivo in docs/ARCHITECTURE.md)
 F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico (dry-run, dal 2026) ·
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64.
-**Fase corrente: F7 — Raspberry Pi arm64, da iniziare.**
-F0-F6 + F-DEBT completate. F6 implementata e verificata E2E (2026-07-20, branch `f6-ai-nl-query`,
-review finale passata): query NL **sola lettura** via `POST /ai/query` + settima pagina React
-`/assistente-ai`, adapter Gemini (Interactions API, loop tool-use manuale), tool registry
-read-only, 100 test verdi. Dettagli: ADR-0023 in [docs/DECISIONS.md](docs/DECISIONS.md), stato in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Config AI: `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL`
-(default `gemini-3.1-flash-lite`) — **mai** `GEMINI_API_KEY`.
+**Fase corrente: F7 — Raspberry Pi arm64: preparazione completata (2026-07-20), verifica su hardware pendente.**
+F0-F6 + F-DEBT completate (F6: query NL read-only `POST /ai/query` + pagina `/assistente-ai`,
+ADR-0023, config `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL` — **mai** `GEMINI_API_KEY`). F7 preparata
+su branch `f7-raspberry-arm64`: gate arm64 PASS da desktop (wheel aarch64 complete, buildx+QEMU,
+manifest Metabase), compose unico con tuning universale per Pi 4 4GB (phase "7"), runbook
+[docs/RASPBERRY-PI.md](docs/RASPBERRY-PI.md) pronto. La fase si chiude quando la checklist del
+runbook gira sul Pi reale (validazione full-stack + protocollo misura Metabase, ADR-0024/0025).
 
 ## Sottoagenti di progetto (`.claude/agents/`)
 Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.
