@@ -259,7 +259,7 @@ revision**. La categorizzazione AI delle pending resta fuori scope (sottosistema
   9937.70 €, entrate 19497.14 €), tool di scrittura irraggiungibili dal modello, suite pytest verde.
 
 ### Fase 7 — Portabilità Raspberry Pi
-- Build multi-arch (`arm64`), test risorse (valutare peso Metabase → eventuale switch a sola UI React), tuning scheduler.
+- Build multi-arch (`arm64`), test risorse (valutare peso Metabase → eventuale switch a sola UI React). (Tuning scheduler: descoped in fase di design F7 — YAGNI, spec 2026-07-20; `BACKUP_ON_STARTUP` opzionale già esistente basta.)
 - **Milestone**: stesso `docker compose up` gira su Raspberry.
 
 **Metodo per fase**: ricerca best practice → carica skill/agenti adatti → scrivi ADR → implementa → traccia evidenze/scelte in `docs/DECISIONS.md`.

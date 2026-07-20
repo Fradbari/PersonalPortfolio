@@ -102,7 +102,10 @@ ADR-0025 p.3: nessuna topologia alternativa in questa fase).
   ```bash
   docker ps
   ```
-  (colonna `STATUS` per `pp-backend` e `pp-metabase` deve riportare `healthy`, non solo `Up`)
+  (colonna `STATUS` per `pp-backend` e `pp-metabase` deve riportare `healthy`, non solo `Up`.
+  **Attenzione**: subito dopo l'avvio è normale vedere `health: starting` anche per molti
+  minuti — non è un errore, vedi §6 "JVM lenta al primo avvio" prima di concludere che
+  qualcosa è rotto)
 - [ ] Endpoint di health del backend risponde con la fase corretta:
   ```bash
   curl http://localhost:8000/health
@@ -134,6 +137,11 @@ completato" o "carico stabile" al momento.
 | RAM steady-state | Media di **3 letture** `docker stats --no-stream` per `pp-metabase`, distanziate **1 minuto** l'una dall'altra, con la prima lettura **5 minuti dopo il primo login** completato a Metabase e **nessun import in corso** sul backend | **≤ 1.5GB** | `docker stats --no-stream pp-metabase` |
 | Dashboard F3 "Personal Portfolio - Overview" | **Cold**: primo caricamento della dashboard subito dopo l'avvio (JVM appena scaldata) — **registrata, solo informativa, nessuna soglia**. **Warm**: secondo caricamento della stessa dashboard, immediatamente dopo il cold | **Warm < 10s** | Cronometro manuale sul caricamento della pagina Metabase |
 | Stabilità (24h) | Nessun OOM-kill del container Metabase nell'arco di 24h di funzionamento continuo | **Zero eventi OOM** | `docker events --since 24h \| grep -i oom` e `dmesg \| grep -i oom` |
+
+> Nota per la misura: se durante le 24h si osserva swap attivo sul Pi (`free -h`, colonna
+> Swap usata in crescita), segnalarlo nell'esito — con solo `mem_limit` impostato, Docker
+> permette di default fino a 2x in swap, e su SD card il thrashing è sia lento sia usurante.
+> Candidato fix (fuori scope F7, da valutare a misura fatta): `memswap_limit` nel compose.
 
 ### Esito e modo operativo (Modello A)
 
