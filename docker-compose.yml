@@ -22,9 +22,14 @@ services:
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 90s     # Pi 4: avvio Python piu' lento; innocuo su desktop (ADR-0024)
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"     # protezione SD card del Pi (ADR-0024 p.3)
+        max-file: "3"
 
   # --- Metabase: Fase 3. Versione PINNATA, mai latest (ADR-0004, ADR-0016). ---
   metabase:
@@ -37,12 +42,21 @@ services:
       - ./metabase-data:/metabase-data  # H2 metadati dashboard
     environment:
       MB_DB_FILE: /metabase-data/metabase.db
+      JAVA_OPTS: -Xmx1g          # 4GB totali sul Pi: 1-2GB al resto del sistema (ADR-0025)
+    mem_limit: 2g                # tetto duro contro OOM di sistema sul Pi (ADR-0025)
     restart: unless-stopped
     depends_on:
       - backend
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
       interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
+      timeout: 15s
+      retries: 10
+      start_period: 900s   # JVM su Pi 4: minuti. Margine sopra la soglia di misura
+                           # ADR-0025 (10 min): il healthcheck non uccide una misura
+                           # borderline che spetta al protocollo bocciare.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

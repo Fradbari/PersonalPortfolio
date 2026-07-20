@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Personal Portfolio", version="0.1.0-phase6", lifespan=lifespan)
+app = FastAPI(title="Personal Portfolio", version="0.1.0-phase7", lifespan=lifespan)
 
 app.include_router(imports.router)
 app.include_router(categories.router)
@@ -42,7 +42,7 @@ app.include_router(ai.router)
 @app.get("/health")
 def health():
     """Healthcheck usato da Docker (ADR: one-click)."""
-    return {"status": "ok", "phase": "6", "db_path": settings.db_path}
+    return {"status": "ok", "phase": "7", "db_path": settings.db_path}
 
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend_dist")
