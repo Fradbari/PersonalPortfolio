@@ -28,4 +28,5 @@ Layer AI: adapter provider-agnostico (unico adapter Gemini), tool registry read-
 
 ## Note
 - Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.
-- Fase corrente: **F7 in corso** — nessun agente dedicato F7, gestito da subagent-driven-development generico.
+- Fase corrente (2026-07-20): **F7 in corso** — nessun agente dedicato F7, gestito da subagent-driven-development generico.
+- Guida funzionale (cosa fa ogni fase per l'utente finale): [../../docs/USER_GUIDE.md](../../docs/USER_GUIDE.md)

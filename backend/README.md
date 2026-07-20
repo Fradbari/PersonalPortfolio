@@ -53,3 +53,11 @@ pytest
 
 - Piano architetturale + stato avanzamento: [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md)
 - Decisioni (ADR): [../docs/DECISIONS.md](../docs/DECISIONS.md)
+- Guida avvio: [../docs/GETTING_STARTED.md](../docs/GETTING_STARTED.md)
+- Guida funzionale endpoint: [../docs/USER_GUIDE.md](../docs/USER_GUIDE.md)
+
+## Stato fase corrente (2026-07-20)
+
+F0-F6 + F-DEBT completate. F7 (Raspberry Pi arm64) in preparazione: gate arm64 verificato da
+desktop, runbook pronto — attesa hardware per la validazione finale. Dettagli:
+[../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
