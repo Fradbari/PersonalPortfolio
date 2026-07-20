@@ -26,12 +26,13 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
 ## Mappa fasi (dettaglio + stato vivo in docs/ARCHITECTURE.md)
 F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico (dry-run, dal 2026) ·
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64.
-**Fase corrente: F6 — design chiuso 2026-07-18, implementazione da fare (nessun codice scritto).**
-F0-F5 + F-DEBT completate e mergiate su master (PR#1). Per implementare F6 leggi in quest'ordine:
-ADR-0023 in [docs/DECISIONS.md](docs/DECISIONS.md) → spec [docs/superpowers/specs/2026-07-18-f6-ai-nl-query-design.md](docs/superpowers/specs/2026-07-18-f6-ai-nl-query-design.md) → piano da eseguire [docs/superpowers/plans/2026-07-18-f6-ai-nl-query.md](docs/superpowers/plans/2026-07-18-f6-ai-nl-query.md).
-F6 = query NL **sola lettura** sui propri dati: `POST /ai/query` + settima pagina React. Nessuna
-modifica di schema. Config: `AI_PROVIDER`/`AI_API_KEY` (esistenti da F0) + `AI_MODEL` — **mai**
-`GEMINI_API_KEY`.
+**Fase corrente: F7 — Raspberry Pi arm64, da iniziare.**
+F0-F6 + F-DEBT completate. F6 implementata e verificata E2E (2026-07-20, branch `f6-ai-nl-query`,
+review finale passata): query NL **sola lettura** via `POST /ai/query` + settima pagina React
+`/assistente-ai`, adapter Gemini (Interactions API, loop tool-use manuale), tool registry
+read-only, 100 test verdi. Dettagli: ADR-0023 in [docs/DECISIONS.md](docs/DECISIONS.md), stato in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Config AI: `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL`
+(default `gemini-3.1-flash-lite`) — **mai** `GEMINI_API_KEY`.
 
 ## Sottoagenti di progetto (`.claude/agents/`)
 Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.
