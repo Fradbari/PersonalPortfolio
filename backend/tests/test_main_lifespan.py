@@ -16,6 +16,7 @@ DB e business logic (`get_effective`) restano reali).
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -103,3 +104,42 @@ def test_backup_on_startup_db_false_skips_backup_even_if_config_default_true(mon
     _run_lifespan_once()
 
     assert called["run_backup"] is False
+
+
+def test_backup_on_startup_skipped_without_failing_boot_when_settings_table_missing(
+    monkeypatch, caplog
+):
+    """Fix T5-review: prima di questo fix, `get_effective("backup_on_startup")` non
+    era avvolto in try/except nel lifespan -- una tabella `settings` non ancora
+    migrata (o un DB irraggiungibile) faceva fallire l'intero boot dell'app, non solo
+    il backup di avvio (violazione di ADR-0018 punto 6: "best-effort, non deve
+    bloccare l'avvio"). Qui l'engine di test non ha `Base.metadata.create_all`
+    eseguito: nessuna tabella esiste, `get_effective` solleva
+    `OperationalError: no such table: settings`. La prova del fix e' duplice: (a) il
+    lifespan completa senza sollevare; (b) il thread di backup NON parte e viene
+    loggato un warning invece di un errore silenzioso o un crash."""
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
+    )
+    # NB: nessun Base.metadata.create_all -- simula un DB non ancora migrato.
+    Session = sessionmaker(bind=engine, future=True)
+    monkeypatch.setattr(settings_service, "SessionLocal", Session)
+
+    monkeypatch.setattr(main_module.threading, "Thread", _SyncThread)
+
+    called = {"run_backup": False}
+
+    def fake_run_backup():
+        called["run_backup"] = True
+        return {}
+
+    monkeypatch.setattr(main_module.backup, "run_backup", fake_run_backup)
+
+    with caplog.at_level(logging.WARNING):
+        _run_lifespan_once()  # non deve sollevare: e' proprio questo il fix
+
+    assert called["run_backup"] is False
+    assert any(
+        record.levelno == logging.WARNING and "backup_on_startup" in record.message
+        for record in caplog.records
+    )

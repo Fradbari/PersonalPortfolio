@@ -28,7 +28,22 @@ async def lifespan(app: FastAPI):
     # invece che da config.settings direttamente -- letto al boot, coerente con
     # "solo al boot successivo" della whitelist. Nessuna sessione disponibile qui
     # (fuori da una richiesta HTTP): session=None (default di get_effective).
-    if get_effective("backup_on_startup")[0]:
+    # get_effective ora e' una query SQL obbligatoria (prima era una lettura in memoria
+    # mai fallibile): se il DB non e' ancora migrato o irraggiungibile, l'eccezione va
+    # catturata qui, prima dello yield -- altrimenti bloccherebbe l'avvio dell'intera
+    # app (incluso /health), non solo il backup di avvio. Stesso spirito best-effort di
+    # _run_startup_backup (ADR-0018 punto 6): fallback sicuro = niente backup di avvio.
+    try:
+        backup_on_startup = get_effective("backup_on_startup")[0]
+    except Exception as exc:  # best-effort: non deve bloccare l'avvio (ADR-0018 punto 6)
+        logger.warning(
+            "Lettura di backup_on_startup fallita all'avvio, backup di avvio saltato "
+            "(non bloccante): %s",
+            exc,
+        )
+        backup_on_startup = False
+
+    if backup_on_startup:
         threading.Thread(target=_run_startup_backup, daemon=True).start()
     yield
 
