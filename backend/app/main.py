@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routers import accounts, ai, backup, categories, imports, insights, transactions
+from app.routers import accounts, ai, backup, categories, imports, insights, settings as settings_router, transactions
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ app.include_router(transactions.router)
 app.include_router(accounts.router)
 app.include_router(insights.router)
 app.include_router(ai.router)
+app.include_router(settings_router.router)
 
 
 @app.get("/health")
