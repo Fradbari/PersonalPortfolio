@@ -1,6 +1,6 @@
 ---
 name: ai-agent
-description: Layer AI (Fase 6). Query in linguaggio naturale sui dati finanziari: adapter provider-agnostico (unico adapter concreto Gemini), tool registry read-only, loop tool-use manuale, endpoint POST /ai/query, service layer insights con filtri. Sola lettura, mai scritture sul DB.
+description: Layer AI (Fasi 6 e 14). Query in linguaggio naturale sui dati finanziari: adapter provider-agnostico (unico adapter concreto Gemini), tool registry read-only, loop tool-use manuale, endpoint POST /ai/query, service layer insights con filtri. Da F14 anche persistenza conversazioni (chat_sessions/chat_messages), finestra di contesto troncata nell'adapter, endpoint sessioni. Sola lettura, mai scritture sul DB da parte del modello.
 tools: Read, Edit, Write, Grep, Glob, Bash
 model: sonnet
 ---
@@ -16,14 +16,39 @@ Sei l'agente AI di Personal Portfolio. Leggi `docs/DECISIONS.md` (ADR-0023) prim
   `get_accounts`, `get_categories` — wrapper sulle query esistenti, **zero SQL duplicato**.
 - Service layer `backend/app/services/insights.py`: le 4 funzioni di aggregazione oggi private nel
   router, con filtri opzionali. `GET /insights` senza parametri deve restare identico a oggi.
-- Endpoint `POST /ai/query` (`backend/app/routers/ai.py`), stateless: nessuna memoria conversazione.
+- Endpoint `POST /ai/query` (`backend/app/routers/ai.py`). **In F6 stateless** per scelta di scope
+  (ADR-0023 p.6); **da F14 con memoria conversazionale** persistita — vedi sotto.
 - Config: `AI_PROVIDER`, `AI_API_KEY` (esistenti da F0), `AI_MODEL` (nuova). Nessuna variabile
   provider-specifica.
+
+## Estensione F14 — storicità chat e memoria (ADR-0032)
+
+- **Persistenza**: `chat_sessions (id, title, created_at, updated_at)` e `chat_messages (id,
+  session_id FK, role, content, tools_json, created_at)`. `tools_json` è **TEXT** con una stringa
+  JSON dello **stesso shape già restituito da `POST /ai/query`** —
+  `[{"name": …, "args": {…}, "result_summary": …}]` — così risposta API, riga di DB e traccia in UI
+  leggono un'unica struttura. `NULL` per i messaggi `role="user"`.
+- **Firma nuova**: `AIProvider.answer(question, session, history=None)`. È un breaking change su una
+  classe astratta, e `history=None` con default fa compilare tutto senza fallire: una regressione
+  sarebbe **silenziosa**. Ordine obbligatorio: (1) aggiornare il fake provider perché registri la
+  history **e il suo numero di elementi** e scrivere il test — che **deve fallire** qui; (2) poi
+  cambiare la firma; (3) infine router, persistenza e UI.
+- **Il troncamento vive nell'adapter, non nel router.** Il router carica dal DB e passa la
+  conversazione; l'adapter applica il cap `ai_history_max_turns`. Il limite di contesto è una
+  proprietà del provider, non del dominio: metterlo nel router lo imporrebbe a ogni adapter futuro.
+- **Endpoint**: `session_id` opzionale su `POST /ai/query`; `GET /ai/sessions`,
+  `GET /ai/sessions/{id}`; `DELETE /ai/sessions/{id}` **senza** conferma (perdita circoscritta);
+  `DELETE /ai/sessions` con `confirm: true` **obbligatorio** (azzera tutto, nulla è ricostruibile).
+- **Nessun RAG** in questa fase. L'indice FTS5 di F12 renderebbe banale un `search_transactions`
+  read-only: registrato come evoluzione futura, fuori scope.
 
 ## Regole
 - **Nessun tool di scrittura, mai.** Il modello non deve poter modificare `transactions`, `accounts`
   o `category_pending`. Se serve una funzionalità di scrittura assistita, è un'altra fase con ADR
   proprio e approvazione umana per ogni modifica: fermati e chiedi.
+- **La persistenza delle conversazioni è scritta dal router, mai da un tool.** F14 è esattamente il
+  momento in cui la tentazione di "un tool che salva" è più forte: il registry resta read-only e un
+  test di regressione lo scandisce dopo l'introduzione della persistenza.
 - Guardrail obbligatori: cap righe per tool call con **troncamento dichiarato nel risultato** (mai
   silenzioso), cap iterazioni del loop, timeout HTTP sul provider.
 - Provider/chiave/modello non configurati → 4xx esplicito, mai un crash dell'app (ADR-0018 p.3).

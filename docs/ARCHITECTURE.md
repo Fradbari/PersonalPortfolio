@@ -262,17 +262,142 @@ revision**. La categorizzazione AI delle pending resta fuori scope (sottosistema
 - Build multi-arch (`arm64`), test risorse (valutare peso Metabase → eventuale switch a sola UI React). (Tuning scheduler: descoped in fase di design F7 — YAGNI, spec 2026-07-20; `BACKUP_ON_STARTUP` opzionale già esistente basta.)
 - **Milestone**: stesso `docker compose up` gira su Raspberry.
 
+> **Nota (2026-07-21)**: F7 è **parcheggiata in attesa dell'hardware**, non abbandonata. Resta ◐ e
+> **non è bloccante per F8+**: le fasi successive procedono su desktop. Quando il Pi 4 4GB sarà
+> disponibile, la fase riprende dal runbook `docs/RASPBERRY-PI.md`, che è già pronto. Vedi anche
+> "Punti aperti dipendenti dall'hardware Pi" più sotto (P1-P4) e il gate M12.0 di F12, che esiste
+> proprio per non far arrivare sul Pi una migrazione che lì fallirebbe.
+
+### Fasi F8-F14 — Roadmap in 3 blocchi (pianificate 2026-07-21)
+
+Spec: `docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md`.
+Decisioni: **ADR-0026 → ADR-0032**. Ogni blocco produrrà la propria spec di dettaglio e il proprio
+piano implementativo quando parte, come F5/F6/F7.
+
+| Blocco | Branch | Fasi | Alembic | Agenti |
+|---|---|---|---|---|
+| **A — Fondamenta UI** | `f8-f9-theme-settings` | F8 dark mode, F9 settings | tabella `settings` | react-ui-agent, schema-agent |
+| **B — Superficie transazioni** | `f11-f12-f13-transactions` | F11 inserimento, F12 filtri, F13 dashboard | FTS5 | react-ui-agent, schema-agent, dashboard-agent |
+| **C — Integrazioni** | `f10-f14-drive-chat` | F10 GDrive test, F14 chat AI | tabelle chat | backup-agent, ai-agent, schema-agent |
+
+Ordine vincolante: **A prima di B** (F12/F13 consumano i token colore di F8 e la pagina di F9). C è
+indipendente **funzionalmente**, ma **non** nella catena Alembic: numero e `down_revision` si
+fissano **al merge**, non alla scrittura — chi mergia per secondo rebasa sulla head reale.
+`alembic heads` deve sempre restituire **una sola** riga (ADR-0029, sezione 8 della spec).
+
+#### Blocco A
+
+**F8 — Dark mode globale** (ADR-0026)
+- **M8.1** Token semantici in `frontend/src/index.css` (`:root` + `.dark`, HSL triplo) e
+  `darkMode: 'class'` in `tailwind.config.js`, con `theme.extend.colors` che li mappa a utility.
+- **M8.2** ThemeProvider (`light|dark|system`) + **script inline anti-FOUC** in `index.html`, che
+  applica la classe prima del bundle.
+- **M8.3** Conversione delle 31 classi colore hardcoded su 11 file; `button.tsx` e `alert-dialog.tsx`
+  per primi.
+- **M8.4** `frontend/src/lib/chart-config.ts` condiviso; spariscono i 5 esadecimali di
+  `Dashboard.tsx`; porting a mano di `ChartContainer`/`ChartTooltip` (nessuna CLI shadcn).
+- **Milestone F8**: 7 pagine navigate in dark e light senza un elemento illeggibile, grafici
+  leggibili su nero, nessun flash bianco al reload, toggle persistente.
+
+**F9 — Pagina Settings centralizzata** (ADR-0027)
+- **M9.1** Tabella `settings` key/value (`key` PK, `value`, `updated_at`).
+- **M9.2** `GET /settings` (whitelist + `secrets_status` con solo `{configured: bool}`),
+  `PUT /settings` (solo whitelist). Precedenza **DB > env > default**.
+- **M9.3** Whitelist iniziale con il momento di applicazione dichiarato per chiave.
+- **M9.4** Blacklist permanente: chiavi AI/Drive mai leggibili né scrivibili, con test automatico.
+- **M9.5** Ottava route `/settings`; ogni secret come badge "configurato / non configurato".
+- **Milestone F9**: il tema salvato sul DB sopravvive al cambio di browser; nessun valore di secret
+  è ottenibile da alcun endpoint; test di blacklist verde.
+
+#### Blocco B
+
+**F11 — Inserimento manuale transazione** (ADR-0028)
+- **M11.1** `POST /transactions` (oggi **non esiste**): `source='manual'`, `import_batch_id=NULL`,
+  `category_raw` derivato. Nessuna revision.
+- **M11.2** Dedup: 409 con la transazione gemella; forzatura con `allow_duplicate: true` →
+  `hash_dedup = <hash>#<n>`. L'importer confronta **sempre** l'hash base. Calcolo di `n` e insert
+  nella **stessa transazione serializzata** (`BEGIN IMMEDIATE`) + retry singolo su `IntegrityError`.
+- **M11.3** Validazione doppia; **lookup esplicita del `category_id` → 404 prima** di derivare
+  `category_raw` (altrimenti NOT NULL violato → 500 opaco).
+- **M11.4** Form React in `/transazioni` con invalidazione delle query.
+- **Milestone F11**: la transazione manuale compare in lista/dashboard/Metabase; doppio invio → 409;
+  forzatura → due righe; re-import della stessa riga → nessun duplicato aggiuntivo.
+
+**F12 — Filtri avanzati e ricerca full-text** (ADR-0029)
+- **M12.0** **Gate arm64 bloccante**: `docker buildx --platform linux/arm64` + `SELECT
+  fts5_version()` nel container emulato. Se fallisce, il blocco non si mergia.
+- **M12.1** Tabella virtuale `transactions_fts` + 3 trigger + popolamento; check FTS5 fail-fast
+  all'avvio; **rebuild dell'indice dopo `POST /backup/restore`**.
+- **M12.2** Filtri `date_from/date_to/category_id/account/amount_min/amount_max/type/q`;
+  `year_month` mantenuto per compatibilità.
+- **M12.3** `group_by=category|month|account` con subtotali, paginazione invariata (ADR-0020).
+- **M12.4** Filtri in `useSearchParams` → permalink; alimentano la `queryKey` di TanStack Query.
+- **Milestone F12**: ricerca per parola nel commento; filtri riflessi nell'URL e ripristinati al
+  reload; il restore di un backup non rompe la ricerca.
+
+**F13 — Dashboard avanzate** (ADR-0030)
+- **M13.1** Estensione di `services/insights.py` (**lo stesso modulo di F6**, mai un secondo):
+  firme backward-compatible, i 5 test F5 passano **invariati**, e il tool AI `get_insights` rientra
+  nel criterio di merge.
+- **M13.2** Sei pannelli su `chartConfig` condiviso: saldo cumulato · cash flow mensile · spese per
+  categoria (donut) · trend risparmio · confronto mese su mese · 4 KPI card. Metabase **invariata**.
+- Vincolo di nomenclatura: la parola "patrimonio" è vietata in UI, tooltip, titoli e campi API — il
+  dato è un **saldo cumulato**.
+- **Milestone F13**: ogni numero quadra con i totali noti del dataset F2; tutti i pannelli leggibili
+  in dark.
+
+#### Blocco C
+
+**F10 — Backup GDrive e test di connettività** (ADR-0031)
+- **M10.1** `POST /backup/gdrive-test`: probe reale write → read → delete (con scope `drive.file`
+  una `list` non prova la scrittura). Credenziali lette solo da `config.py`.
+- **M10.2** Esiti diagnostici distinti; messaggio Google **sanitizzato** (campi strutturati di
+  `HttpError` + redazione letterale dei valori noti).
+- **M10.3** Pulsante "Test connessione GDrive" nella pagina Backup; il folder id non è mai mostrato.
+- **M10.4** Cleanup **best-effort**: nome `portfolio_gdrive_probe_<timestamp>.probe`, prefisso
+  distinto da quello dei backup, rimozione orfani a inizio di ogni esecuzione.
+- **Milestone F10**: SA valida → verde e nessun residuo; cartella non condivisa → messaggio che
+  nomina la causa.
+
+**F14 — Storicità chat AI e memoria** (ADR-0032)
+- **M14.1** `chat_sessions` + `chat_messages`; `tools_json` = TEXT con **lo stesso shape** già
+  restituito da `POST /ai/query`.
+- **M14.2** `AIProvider.answer(question, session, history=None)` — breaking change: **prima** si
+  aggiorna il fake provider e si scrive il test (che deve fallire), **poi** si cambia la firma. Il
+  troncamento vive **nell'adapter**, non nel router.
+- **M14.3** `session_id` opzionale su `POST /ai/query`; `GET /ai/sessions`, `GET /ai/sessions/{id}`;
+  `DELETE /ai/sessions/{id}` senza conferma, `DELETE /ai/sessions` con `confirm: true`.
+- **M14.4** UI: elenco sessioni, ripresa conversazione, "Azzera storico" a 2 step; traccia tool
+  sempre visibile.
+- **M14.5** Modello **sempre read-only**: la persistenza è scritta dal router, mai da un tool.
+- **Milestone F14**: follow-up ("e il mese prima?") risposto correttamente; conversazione ripresa
+  dopo riavvio container; azzeramento completo; conteggio transazioni invariato.
+
 **Metodo per fase**: ricerca best practice → carica skill/agenti adatti → scrivi ADR → implementa → traccia evidenze/scelte in `docs/DECISIONS.md`.
 
 ---
 
 ## 4. Evoluzione futura
-- Esposizione fuori rete locale → reverse proxy + auth (oggi rimandato, ADR aperto).
+
+Voci **non** coperte da F8-F14 (per quelle vedi la roadmap sopra). Ognuna richiede spec e ADR propri
+quando partirà.
+
+- **Patrimonio netto reale**: modello asset/passività con snapshot periodici (immobili,
+  investimenti, mutui). Oggi il DB ha solo transazioni, quindi F13 mostra un **saldo cumulato** e la
+  parola "patrimonio" è vietata in UI (ADR-0030). Questo è il sottosistema che la sbloccherebbe.
+- **Tool AI `search_transactions`**: con l'indice FTS5 introdotto da F12 (ADR-0029) un quinto tool
+  read-only di ricerca testuale diventa banale da aggiungere. Fuori scope in F14 per contenere
+  l'egress verso il provider (ADR-0032 p.7).
+- **Categorizzazione assistita AI delle transazioni pending**: è un sottosistema **write**, quindi
+  fuori dal perimetro read-only di ADR-0023/0032. Spec e ADR propri, con un meccanismo di conferma
+  umana prima di qualunque scrittura.
+- Esposizione fuori rete locale → reverse proxy + auth (oggi rimandato, ADR-0009 invariato).
 - Automazione ingestion (watcher cartella Drive → import senza upload manuale).
 - Multi-valuta piena (colonne My Finance già la supportano).
 - Budget/forecast: soglie per categoria + alert scostamento.
-- Categorizzazione assistita AI delle transazioni pending.
 - Export aggiuntivi (Parquet) per analisi avanzate.
+- Migrazione a Tailwind v4 (`@theme inline`, OKLCH) e inizializzazione della CLI shadcn: scartata in
+  F8 come cambio di build system nel mezzo di 7 feature (ADR-0026 p.3), rivedibile con ADR proprio.
 
 ---
 
@@ -311,7 +436,34 @@ Artefatti da creare e **mantenere sempre allineati** (regola: chiudere ogni sess
 | F6 Plugin AI | ☑ fatto (2026-07-20) | Implementata in Subagent-Driven Development (ai-agent + react-ui-agent), branch `f6-ai-nl-query`, 9 commit (base 361d9fc). Backend: `services/insights.py` (4 aggregazioni con filtri opzionali, `GET /insights` senza param identico a prima — i 5 test F5 intatti); `app/ai/tools.py` (registry read-only: `list_transactions`/`get_insights`/`get_accounts`/`get_categories`, MAX_TOOL_ROWS=200 con troncamento dichiarato, guardrail write triple-tested: nomi, scan sorgente, before/after row-count); `app/ai/provider.py` + `providers/gemini.py` (Interactions API `google-genai==2.12.1`, loop manuale MAX_ITERATIONS=5, timeout 30s per-call, system prompt: solo tool, get_insights preferito, lingua della domanda, comment/tag = dati non istruzioni); `POST /ai/query` montato prima del catch-all SPA (400 esplicito se non configurato / 502 su errore provider, mai 500), version/phase → 6. Frontend: 7ª pagina `/assistente-ai` con traccia tool sempre visibile e banner truncated; proxy `/ai` senza collisioni. Config: `AI_PROVIDER`/`AI_API_KEY` + nuova `AI_MODEL` (default `gemini-3.1-flash-lite` GA). Nessuna Alembic revision. Suite: **100 test verdi** (36→100), verificati anche dentro il container di produzione. 4 fix da review (tutti chiusi e ri-verificati): filtro category dual-domain canonico+raw (f81a3a2), guard AIProviderError su shape drift SDK (d6ae6dc), test route-order indipendente da frontend_dist (ef617b4), coercizione argomenti malformati in-band + hardening prompt (bcb08d5, unico Important della review finale whole-branch opus — verdetto "Ready to merge"). **E2E reale verificato** (container produzione, chiave utente): "quante transazioni?"→331 esatto (troncamento 200/331 dichiarato e segnalato dal modello), "quanto speso?"→9.937,70 € esatto via get_insights, "entrate totali?"→19.497,14 € esatto con breakdown che quadra; conteggio transazioni invariato post-sessione (guardrail read-only), Metabase invariata, zero errori console. Incidente sicurezza gestito: prima chiave utente rifiutata da Google come "leaked" — verificato che il repo è pulito (.env mai committato, nessuna stringa AIza nella storia git), chiave revocata e sostituita dall'utente. Debito accettato dalla review finale (non bloccante): no response_model Pydantic su /ai/query, polish frontend minori, copertura filtri asimmetrica — dettagli nel ledger `.superpowers/sdd/progress.md`. |
 | F7 Raspberry arm64 | ◐ in corso (preparazione completata 2026-07-20, attesa hardware) | Target confermato dall'utente: **Pi 4 4GB**, hardware non ancora disponibile → verifica su hardware reale rimandata (la fase si chiude ☑ solo con la checklist runbook eseguita sul Pi). Preparazione fatta e verificata da desktop (branch `f7-raspberry-arm64`, SDD): **Gate portabilità arm64 PASS** — wheel check fail-fast `pip download --only-binary=:all: --platform manylinux2014_aarch64` su requirements: 58/58 wheel aarch64 (pandas/numpy/cryptography/pydantic-core/greenlet incluse), zero sdist; `docker buildx --platform linux/arm64 --load` → immagine Architecture=arm64; smoke QEMU: alembic+uvicorn partono, `/health` 200 (incidente non-bug: MSYS path mangling di Git Bash su `-e DB_PATH`, risolto con `MSYS_NO_PATHCONV=1`); manifest `metabase/metabase:v0.62.4` include linux/arm64 (ri-conferma ADR-0016). **Compose tuning universale** (9767b75): healthcheck backend 30s/10s/5/90s, metabase 30s/15s/10/900s, `JAVA_OPTS=-Xmx1g`, `mem_limit: 2g`, log rotation json-file 10m/3 su entrambi i servizi, version/phase → 7; verificato live su desktop (compose config valido, suite 100/100, `docker compose up -d --build` → entrambi healthy, `/health` phase "7", Metabase :3000 ok). **Runbook `docs/RASPBERRY-PI.md`** (c7fccee): setup Pi da zero, comando standard unico `docker compose up -d --build`, checklist in 2 parti (validazione full-stack = milestone; misura Metabase ADR-0025 con soglie ≤10min avvio / ≤1.5GB RAM steady / warm <10s / no OOM 24h), Modello A (skip = raccomandazione `stop metabase`, mai topologia alternativa), troubleshooting, nota egress. ADR-0024/0025. Nessuna Alembic revision, nessuna logica di business toccata (solo metadata version/phase). |
 
+| F8 Dark mode globale — **Blocco A** | ☐ da fare | Pianificata 2026-07-21 (ADR-0026). Parte da zero: `darkMode` mai configurato, `index.css` = 3 righe, 0 CSS variables, 31 classi colore hardcoded su 11 file, 5 esadecimali in `Dashboard.tsx`. Tailwind resta a v3.4.19; Recharts è già ^3.9.2. |
+| F9 Settings centralizzata — **Blocco A** | ☐ da fare | Pianificata 2026-07-21 (ADR-0027). Prima revision Alembic dopo `0002`. Vincolo permanente: `/settings` = unico punto di configurazione UI. Blacklist secret con test automatico. |
+| F11 Inserimento manuale — **Blocco B** | ☐ da fare | Pianificata 2026-07-21 (ADR-0028). `POST /transactions` **non esiste oggi**. Nessuna revision. Duplicato forzato con ordinale `#n` sotto `BEGIN IMMEDIATE`. |
+| F12 Filtri avanzati + FTS5 — **Blocco B** | ☐ da fare | Pianificata 2026-07-21 (ADR-0029). Revision FTS5 + trigger. **Gate arm64 bloccante (M12.0)** prima del merge. Rebuild indice dopo restore. |
+| F13 Dashboard avanzate — **Blocco B** | ☐ da fare | Pianificata 2026-07-21 (ADR-0030). Nessuna revision. Estende il `services/insights.py` di F6, mai un secondo. "Saldo cumulato", mai "patrimonio". Metabase invariata. |
+| F10 Backup GDrive + test — **Blocco C** | ☐ da fare | Pianificata 2026-07-21 (ADR-0031). Nessuna revision. Probe write→read→delete: con scope `drive.file` una `list` non prova la scrittura. Errori sanitizzati. |
+| F14 Storicità chat AI — **Blocco C** | ☐ da fare | Pianificata 2026-07-21 (ADR-0032). Revision `chat_sessions`/`chat_messages`. Breaking change su `AIProvider.answer`: fake provider aggiornato **prima** della firma. Modello resta read-only. |
+
 Legenda: ☐ da fare · ◐ in corso · ☑ fatto/verificato.
+
+**Nota su F7 (2026-07-21)**: resta ◐ **parcheggiata in attesa dell'hardware**, non abbandonata e
+**non bloccante per F8+**. Riprende dal runbook `docs/RASPBERRY-PI.md`, già pronto. La sua riga
+sopra è invariata: nessuna evidenza è stata riscritta.
+
+### Punti aperti dipendenti dall'hardware Pi (P1-P4)
+
+Decisioni **sospese per scelta**, non dimenticanze: dipendono da misure che solo il Raspberry reale
+può produrre. Vanno riportate all'utente quando l'hardware arriva.
+
+| # | Punto aperto | Perché non si decide ora | Cosa lo sblocca |
+|---|---|---|---|
+| **P1** | Se Metabase viene fermata sul Pi (ADR-0025, Modello A), le dashboard React di F13 smettono di essere complementari e diventano l'unica superficie analitica: ADR-0030 andrebbe rivisto con un ADR successivo | Dipende dalle soglie di ADR-0025 (avvio ≤ 10 min, RAM steady ≤ 1.5GB, warm < 10s) | Checklist parte 2 di `docs/RASPBERRY-PI.md` |
+| **P2** | Copertura funzionale minima di F13 se P1 si verifica: replicare le 4 card SQL native di F3 o accettare di perderle | Discende da P1 | Esito di P1 + scelta utente |
+| **P3** | Costo dei nuovi pannelli e del bundle su Pi 4 4GB: nessuna soglia di performance frontend è mai stata definita in questo progetto | Non misurabile da desktop | Sessione-Pi |
+| **P4** | Punto di rientro di F7 rispetto a F8-F14: se l'hardware arriva a Blocco B in corso, F7 si inserisce subito o attende il merge del blocco | Priorità dell'utente, non scelta tecnica | Arrivo dell'hardware |
+
+**Non è pending** il rischio FTS5 su arm64: lo chiude in anticipo il gate M12.0, bloccante per il
+merge del Blocco B proprio perché non può aspettare il Pi.
 
 ### Prompt di ripresa sviluppo — SEZIONE VIVA (minimalista, aggiornare a ogni fase)
 
@@ -319,28 +471,41 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
-Fase corrente: F7 — PREPARAZIONE COMPLETATA (2026-07-20), VERIFICA SU HARDWARE PENDENTE.
-F0-F6 + F-DEBT completate. F7 preparata sul branch f7-raspberry-arm64: gate portabilità
-arm64 PASS da desktop (wheel aarch64 58/58, buildx+QEMU, manifest Metabase), compose unico
-con tuning universale (phase "7"), runbook pronto. Verificare con `git log`/`git branch` se
-il merge su master è già avvenuto.
+Fase corrente: BLOCCO A (F8 dark mode + F9 settings). F0-F6 + F-DEBT completate.
+Roadmap F8-F14 pianificata il 2026-07-21: spec
+docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md, ADR-0026 → ADR-0032.
+Nessun codice di F8-F14 ancora scritto.
 
-Prossimo passo (quando il Raspberry Pi 4 4GB sarà pronto): sessione-Pi guidata da
-docs/RASPBERRY-PI.md — setup, comando standard `docker compose up -d --build`, checklist
-parte 1 (validazione full-stack = milestone F7), poi parte 2 (protocollo misura Metabase
-ADR-0025: avvio ≤10min, RAM steady ≤1.5GB, warm <10s, no OOM 24h → keep oppure
-raccomandazione `docker compose stop metabase`, Modello A). A esito: riga F7 → ☑ con
-i numeri misurati in Stato avanzamento + CLAUDE.md aggiornato.
+F7 Raspberry arm64: ◐ PARCHEGGIATA in attesa hardware (Pi 4 4GB non ancora disponibile).
+NON è bloccante per F8+ e non va ripresa ora. Preparazione completa e verificata da desktop
+(branch f7-raspberry-arm64: gate arm64 PASS, compose con tuning universale, runbook
+docs/RASPBERRY-PI.md pronto, ADR-0024/0025). Riprende solo all'arrivo del Pi, insieme ai
+punti aperti P1-P4 in questo documento. Verificare con `git log`/`git branch` se il merge
+su master è avvenuto.
 
-Riferimenti F7: ADR-0024 (strategia arm64), ADR-0025 (protocollo Metabase), spec
-docs/superpowers/specs/2026-07-20-f7-raspberry-arm64-design.md (rev. 3), piano
-docs/superpowers/plans/2026-07-20-f7-raspberry-arm64.md, ledger .superpowers/sdd/progress.md.
+Prossimo passo: aprire il branch `f8-f9-theme-settings` e scrivere spec di dettaglio +
+piano implementativo del Blocco A (brainstorming → writing-plans → subagent-driven-development,
+come F5/F6/F7). Agenti: react-ui-agent + schema-agent.
+Blocco A in breve: `darkMode:'class'` + token semantici CSS in index.css (:root/.dark, HSL
+triplo) + ThemeProvider con script inline anti-FOUC in index.html; conversione delle 31
+classi colore hardcoded su 11 file e dei 5 esadecimali di Dashboard.tsx via chart-config.ts
+condiviso; tabella `settings` key/value (prima revision dopo 0002) + GET/PUT /settings con
+whitelist e blacklist secret; ottava pagina /settings.
+
+Ordine dei blocchi: A prima di B (f11-f12-f13-transactions), C (f10-f14-drive-chat)
+indipendente funzionalmente. ATTENZIONE catena Alembic: numero e down_revision si fissano
+AL MERGE, non alla scrittura — chi mergia per secondo rebasa sulla head reale, `alembic heads`
+deve dare UNA sola riga. Gate bloccante di B: M12.0 — build linux/arm64 + `SELECT
+fts5_version()` nel container emulato prima di mergiare.
+
 Nota macchina Windows: Git Bash converte i path in `-e VAR=/path` (MSYS) — usare
 MSYS_NO_PATHCONV=1 coi comandi docker run.
 
 Regole sempre valide: no schema change senza alembic revision; no secret committato;
-dubbi → chiedi; PUT /transactions/{id} edita SOLO comment/tag/category_id (mai hash_dedup);
-nessun tool di scrittura esposto al modello AI (ADR-0023).
+nessun secret o identificatore privato leggibile da UI/API (ADR-0027); ogni impostazione
+esposta passa da /settings; dubbi → chiedi; PUT /transactions/{id} edita SOLO
+comment/tag/category_id (mai hash_dedup); nessun tool di scrittura esposto al modello AI
+(ADR-0023/0032).
 ```
 
 ## Verifica (a fine implementazione, per fase)
@@ -350,3 +515,34 @@ nessun tool di scrittura esposto al modello AI (ADR-0023).
 - **F3**: Metabase legge replica R/O; import in corso non blocca le query; dashboard coerente su mese campione.
 - **F4**: backup manuale + all'avvio → file su Drive + locale; restore su DB pulito ripristina i conteggi attesi.
 - **F5/F6/F7**: smoke test UI + gestione pending, query AI su dataset noto, `docker compose up` su target arm64.
+
+### Verifica F8-F14 (per blocco, prima del merge)
+
+Comuni a ogni blocco:
+- `alembic heads` → **una sola** head; `alembic upgrade head` e `downgrade` fino a `0002` su DB di
+  prova.
+- Suite pytest completa (oggi 100 test) verde, più i nuovi: blacklist settings, dedup manuale
+  409/forzatura, filtri e full-text, guardrail read-only AI dopo la persistenza.
+- Build del **container di produzione** e navigazione reale delle pagine (non solo dev server), in
+  **dark e light**, con console pulita.
+- Numeri incrociati contro i totali noti del dataset F2 (331 transazioni, uscite 9937.70 €, entrate
+  19497.14 €) su ogni pannello nuovo.
+- `docker compose config` valido, `/health` con `phase` aggiornata.
+
+Per fase:
+- **F8**: le 7 pagine esistenti in entrambi i temi senza elementi illeggibili; reload senza flash
+  bianco; zero esadecimali residui nei componenti grafici.
+- **F9**: il tema salvato sopravvive al cambio di browser; `GET /settings` non restituisce alcun
+  valore blacklistato (test automatico); precedenza DB > env verificata.
+- **F11**: doppio invio identico → 409 con la gemella nel corpo; forzatura → due righe distinte;
+  due richieste concorrenti → `#1` e `#2`, mai un 500; `category_id` inesistente → 404, non 500.
+- **F12**: **gate M12.0 bloccante** (build `linux/arm64` + `SELECT fts5_version()`); ricerca per
+  parola nel commento; filtri riflessi nell'URL e ripristinati al reload; restore di un backup →
+  la ricerca continua a rispondere sui dati ripristinati.
+- **F13**: i 5 test F5 su `GET /insights` passano **invariati**; il tool AI `get_insights`
+  restituisce gli stessi numeri di prima.
+- **F10**: manuale, una volta — Service Account reale con cartella condivisa (verde, nessun
+  residuo) e con cartella non condivisa (messaggio che nomina la causa e **privo del folder id**).
+- **F14**: evidenza documentata del passaggio rosso→verde sul fake provider **prima** del cambio di
+  firma; follow-up conversazionale corretto; conversazione ripresa dopo riavvio container;
+  azzeramento completo; conteggio transazioni invariato a fine sessione.

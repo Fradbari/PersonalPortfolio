@@ -599,3 +599,391 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   validato senza errori in questa sessione); nessuna ambiguità residua sul placeholder di ADR-0004. Rischio
   aperto per F7: verificare a runtime su hardware reale se `v0.62.4` (o la patch corrente a quel momento)
   è sostenibile su Raspberry Pi; se no, seguire l'alternativa già prevista (skip Metabase, anticipare F5).
+
+## ADR-0026 — Dark mode (F8): token semantici CSS su Tailwind v3 `class`, nessuna migrazione a v4, chartConfig condiviso obbligatorio
+
+- Status: Accepted — Fase: F8 — Data: 2026-07-21
+- Contesto: il frontend F5 non ha alcun supporto al tema scuro, e non parzialmente — proprio da zero.
+  Inventario verificato sul codice: `frontend/tailwind.config.js` non dichiara la chiave `darkMode`
+  (default `media`, cioè il tema seguirebbe il sistema **senza che nessuna classe `dark:` esista**);
+  `frontend/src/index.css` contiene 3 righe (`@tailwind base/components/utilities`) e **zero CSS
+  custom properties**; 31 occorrenze di classi colore hardcoded (`bg-white`, `text-gray-*`,
+  `border-gray-*`) su 11 file; 5 letterali esadecimali passati direttamente a Recharts in
+  `frontend/src/pages/Dashboard.tsx:44-84` (`#16a34a`, `#dc2626`, `#2563eb`, `#7c3aed`/`#ddd6fe`,
+  `#0891b2`). shadcn/ui è adottata **a metà**: ci sono `lib/utils.ts` (`cn()`),
+  `class-variance-authority` e 2 componenti in `components/ui/`, ma **nessun `components.json`** —
+  la CLI non è mai stata inizializzata. Versioni reali: Tailwind `3.4.19` (pinnato in F5 per
+  incompatibilità note), Recharts `^3.9.2`, React `19.2.7`.
+  Ricerca best practice (2026): la strategia raccomandata è token semantici in `:root` e `.dark`
+  (coppie `background`/`foreground`) mappati su utility Tailwind; per i grafici, colori dichiarati
+  via variabili `--chart-N` e riferiti come `var(--chart-N)` — forma introdotta con Recharts v3,
+  che il progetto ha già. La documentazione shadcn dichiara esplicitamente che i componenti restano
+  compatibili con Tailwind v3: la migrazione a v4 non è un prerequisito.
+- Decisione:
+  1. **`darkMode: 'class'`** in `tailwind.config.js`, non `media`: la preferenza esplicita
+     dell'utente deve poter vincere sul sistema operativo (F9 espone la scelta `light|dark|system`).
+  2. **Token semantici** in `frontend/src/index.css`, `@layer base`, definiti in `:root` e
+     ridefiniti in `.dark`: `--background --foreground --card --card-foreground --muted
+     --muted-foreground --border --input --ring --primary --destructive --success` e
+     `--chart-1 … --chart-5`. Formato **HSL triplo** (sintassi Tailwind v3, i token vanno avvolti in
+     `hsl(var(--x))` nella config), non OKLCH: OKLCH è il default di Tailwind v4 e qui
+     introdurrebbe una dipendenza dalla major che non stiamo adottando.
+  3. **Nessuna migrazione a Tailwind v4** in questa fase. Sarebbe un cambio di build system nel
+     mezzo di 7 feature, con impatto su tutto il CSS esistente e sulla build arm64 di F7. Il costo
+     è pagare a mano il porting dei componenti shadcn che oggi arriverebbero in sintassi v4;
+     accettato. Rivedibile con un ADR successivo, mai come effetto collaterale di un'altra fase.
+  4. **La CLI shadcn resta non inizializzata**: nessun `components.json`. I componenti nuovi
+     (`ChartContainer`, `ChartTooltip`) si portano a mano in `components/ui/`, coerentemente con
+     come sono già arrivati `button.tsx` e `alert-dialog.tsx`. Introdurre la CLI ora
+     riscriverebbe la configurazione esistente per allinearla ai default v4.
+  5. **ThemeProvider + script inline anti-FOUC**: il context React gestisce `light|dark|system` e
+     applica la classe su `document.documentElement`; uno **script inline in `index.html`**, che gira
+     **prima** del bundle, legge localStorage e applica la classe. Senza quello script ogni
+     caricamento lampeggia bianco prima che React monti — difetto visibile a ogni singolo reload.
+  6. **`chartConfig` condiviso obbligatorio** (`frontend/src/lib/chart-config.ts`): nessun grafico,
+     presente o futuro, dichiara colori propri. Stroke, fill, tick, grid e tooltip escono da lì,
+     leggendo i token via `getComputedStyle`. Motivazione: un colore hardcoded è invisibile finché
+     qualcuno non apre la pagina in dark, e allora è illeggibile — è esattamente lo stato attuale
+     dei 5 esadecimali di `Dashboard.tsx`.
+- Conseguenze: la superficie di conversione è nota e finita (31 classi su 11 file, 5 esadecimali su
+  1 file), quindi F8 è verificabile per esaurimento e non a campione. Nessuna dipendenza nuova.
+  Debito accettato: i componenti shadcn presi dal registry ufficiale andranno tradotti in sintassi
+  v3 a mano finché non si deciderà la migrazione. Vincolo permanente introdotto: **ogni grafico
+  nuovo passa dal `chartConfig` condiviso** — un `stroke="#..."` in una PR è un difetto, non una
+  scelta.
+
+## ADR-0027 — Settings centralizzati (F9): `/settings` unico punto di configurazione UI, tabella key/value, precedenza DB > env > default, whitelist esplicita e blacklist permanente
+
+- Status: Accepted — Fase: F9 — Data: 2026-07-21
+- Contesto: il progetto non ha alcun punto di configurazione in interfaccia. `backend/app/config.py`
+  espone 13 impostazioni via env; `backend/app/models.py` non ha una tabella `settings` e la sua
+  docstring lo dichiara esplicitamente rimandato ("sarà aggiunta in una fase successiva tramite
+  Alembic revision dedicata"), coerentemente con ADR-0018 p.8 che l'aveva descopata per YAGNI
+  ("env var basta finché non c'è UI, F5"). Quella condizione è ora caduta: la UI esiste, e F8
+  introduce la prima preferenza che **non può** vivere in env, perché è dell'utente e non del deploy.
+  Senza una regola, ogni fase futura aggiungerebbe il proprio pannello di configurazione dove
+  capita. Serve inoltre una policy sui secret: F9 è la prima fase che crea una superficie HTTP di
+  lettura della configurazione, cioè un modo nuovo di far uscire valori che finora vivevano solo
+  nel processo.
+- Decisione:
+  1. **`/settings` è l'unico punto di configurazione esposto all'utente — vincolo permanente di
+     prodotto.** Nessuna pagina costruisce un proprio pannello di impostazioni: ogni preferenza
+     presente e futura passa da qui. È il motivo per cui la tabella è key/value.
+  2. **Tabella `settings`**: `key TEXT PRIMARY KEY`, `value TEXT`, `updated_at`. Key/value e non
+     colonne tipizzate: così ogni impostazione futura è un INSERT e **non** una migrazione. Il
+     tipo si applica in lettura, lato applicazione.
+  3. **Precedenza DB > env > default.** Env resta il bootstrap (primo avvio, deploy headless,
+     Raspberry); il DB è la fonte di verità runtime quando la chiave è stata scritta almeno una
+     volta. Non è una violazione di 12-factor: la configurazione di *deploy* resta in env, quella
+     di *preferenza utente* vive nel dato, che è dove appartiene.
+  4. **Whitelist esplicita**, con il momento di applicazione dichiarato chiave per chiave — è la
+     differenza fra un'impostazione che funziona e un utente convinto che l'app ignori i suoi
+     salvataggi:
+
+     | Chiave | Quando ha effetto |
+     |---|---|
+     | `theme` | immediato |
+     | `metabase_url` | immediato (solo destinazione del link) |
+     | `ai_history_max_turns` | immediato, dalla domanda successiva |
+     | `import_min_year` | immediato, dal prossimo import |
+     | `backup_retention` | immediato, dal prossimo backup |
+     | `backup_on_startup` | **solo al boot successivo** |
+
+     L'indicazione compare **accanto al campo nella UI**, non solo qui. Ogni chiave aggiunta in
+     futuro entra in whitelist **con la sua riga in questa tabella**: è parte del contratto.
+  5. **`metabase_url` è solo la destinazione del link** mostrato dalla UI React. Il servizio
+     Metabase resta definito in `docker-compose.yml`: cambiarlo da `/settings` **non riconfigura né
+     riavvia nulla**. Serve a puntare a un'istanza su host o porta diversi (tipicamente il Pi).
+  6. **Blacklist permanente** — mai leggibili né scrivibili da API o UI: `AI_API_KEY`,
+     `GOOGLE_SA_KEY_PATH`, `GDRIVE_BACKUP_FOLDER_ID`, e qualunque chiave futura che sia un segreto
+     **o un identificatore di risorsa privata**. `GDRIVE_BACKUP_FOLDER_ID` non è una credenziale ma
+     identifica una cartella Drive personale: esporlo è una fuga di informazione, non una comodità.
+     `GET /settings` restituisce per i secret solo un blocco `secrets_status` con
+     `{configured: true|false}` e **mai il valore**; la UI li mostra come badge con la riga `.env`
+     da usare, mai come campo di input.
+  7. **Nota che vale come regola di progetto**: `GOOGLE_API_KEY` **non esiste** in questo repository
+     e non va introdotta. La chiave del provider AI è `AI_API_KEY`, provider-agnostica per
+     ADR-0023 p.3; un nome provider-specifico contraddirebbe l'adapter e andrebbe riscritto al
+     primo secondo provider.
+  8. **Test di blacklist automatico**: la suite fallisce se una chiave blacklistata compare in
+     qualunque punto della risposta di `GET /settings`. Non è una verifica una tantum — è il
+     guardrail che rende la regola 6 verificabile invece che dichiarata.
+  9. **Il tema vive in due posti, con ruoli distinti**: DB = fonte di verità (sopravvive al cambio
+     di browser), localStorage = cache letta dallo script inline anti-FOUC di ADR-0026 p.5. Non è
+     duplicazione: la cache serve a un vincolo temporale (applicare la classe prima del bundle) che
+     una lettura via API non può soddisfare.
+- Conseguenze: una revision Alembic (tabella nuova, rischio nullo). Il vincolo del punto 1 diventa
+  una regola non negoziabile in `CLAUDE.md`. La superficie HTTP guadagna un perimetro di sicurezza
+  che prima non esisteva, e che ADR-0031 specializza per il caso Drive. Rischio residuo accettato:
+  la precedenza DB > env può disorientare chi cambia una env var e non vede effetti — mitigato
+  mostrando in `/settings` il valore effettivo e la sua provenienza.
+
+## ADR-0028 — Inserimento manuale (F11): `POST /transactions`, `source='manual'`, duplicato consapevole con ordinale `#n` (specializza ADR-0005/ADR-0013)
+
+- Status: Accepted — Fase: F11 — Data: 2026-07-21
+- Contesto: verificato sul codice — `backend/app/routers/transactions.py` espone **solo**
+  `GET`/`PUT`/`DELETE`; **non esiste alcun `POST /transactions`**. Le transazioni possono entrare
+  unicamente da un import di file. Vincoli di schema rilevanti (`backend/app/models.py`):
+  `hash_dedup` ha `unique=True` a livello DB (riga 104); `category_raw` è **NOT NULL** (riga 98);
+  `source` è una stringa senza `CheckConstraint` (riga 102), quindi un valore nuovo non richiede
+  migrazione; `import_batch_id` è nullable (riga 103). L'unicità di `hash_dedup` è ciò che rende
+  idempotenti gli import (ADR-0005/0013) ed è quindi intoccabile — ma rende anche **impossibile**
+  registrare due spese realmente identiche nello stesso giorno (due caffè, stesso importo, stessa
+  categoria, stesso conto), che è un caso quotidiano e legittimo.
+- Decisione:
+  1. **`POST /transactions`** con body `date, amount, currency, type, category_id, account,
+     comment, tag`. Il backend deriva `category_raw` dal nome della categoria canonica scelta,
+     imposta `source='manual'` e `import_batch_id=NULL`. **Nessuna Alembic revision per F11**:
+     nessuna colonna nuova, e `source='manual'` passa perché la colonna non ha vincolo di dominio.
+  2. **Ordine di validazione vincolante**: il `category_id` ricevuto va verificato esistente con
+     una **lookup esplicita → 404 se assente**, e solo *dopo* si deriva `category_raw`. Invertire i
+     due passi produce `category_raw = None` su una colonna NOT NULL: l'errore emergerebbe come
+     `IntegrityError` al commit, cioè un **500 opaco**, al posto di un 404 che dice quale categoria
+     manca. Pydantic **non** copre questo caso: valida che l'intero sia un intero, non che esista
+     nel database.
+  3. **Duplicato consapevole**: se l'hash calcolato esiste già → **409** con la transazione gemella
+     nel corpo, così l'utente vede *cosa* sta per duplicare. Reinvio con `allow_duplicate: true` →
+     si scrive `hash_dedup = <hash_base>#<n>`, con `n` ordinale della ripetizione.
+  4. **Il suffisso `#n` è il meccanismo scelto per convivere con l'unique constraint senza
+     modificarlo** — va detto esplicitamente perché non è ovvio a chi legge il codice dopo:
+     stringhe diverse, nessuna violazione, nessuna migrazione, `hash_dedup` resta `unique`.
+     **Corollario vincolante: l'importer confronta sempre l'hash base, mai il suffisso.** Una riga
+     forzata `#n` non partecipa al dedup degli import e non ne altera l'idempotenza. Questo
+     **specializza** ADR-0005 e ADR-0013 (che definiscono la formula dell'hash) e **non li supera**:
+     la formula resta identica, cambia solo cosa si scrive in colonna per una riga esplicitamente
+     marcata come ripetizione voluta.
+  5. **Serializzazione del calcolo di `n`.** Leggere l'ordinale e poi scrivere in due passi separati
+     è una race: due invii ravvicinati leggono entrambi "nessun `#n` esiste", scrivono entrambi `#1`
+     e il secondo esplode con `IntegrityError`. È raro in single-user ma non impossibile (doppio
+     click, retry del browser) ed è il tipo di errore che si manifesta solo in produzione. Lettura
+     dell'ordinale e insert avvengono nella **stessa transazione serializzata**, aperta con
+     `BEGIN IMMEDIATE` (prende il lock di scrittura subito, non alla prima INSERT) — coerente con
+     FastAPI unico writer (ADR-0001/ADR-0004). Come cintura: `IntegrityError` su `hash_dedup` →
+     ricalcolo di `n` e **un solo** nuovo tentativo, poi 409. Test di regressione con due richieste
+     concorrenti che devono produrre `#1` e `#2`, mai un 500.
+  6. **Validazione doppia**: Pydantic lato backend (importo > 0, `type` in `expense|income`, data
+     non futura oltre soglia) e gli stessi vincoli nel form React, con errori per campo. La
+     validazione frontend è ergonomia, non sicurezza: quella che conta è la backend.
+  7. **Campi immutabili invariati**: `PUT /transactions/{id}` continua a toccare solo
+     `comment`/`tag`/`category_id` (ADR-0019 p.3). Una transazione manuale sbagliata si cancella e
+     si riscrive, non si edita nei campi dell'hash.
+- Conseguenze: nessuna modifica di schema in F11. Il dedup resta l'invariante centrale del progetto
+  e guadagna una via d'uscita esplicita e tracciabile invece di un aggiramento silenzioso. Debito
+  noto accettato: il suffisso rende `hash_dedup` non più un hash puro ma "hash + discriminante di
+  ripetizione" — chi scrive query dirette sul DB deve saperlo, ed è il motivo per cui il punto 4
+  esiste.
+
+## ADR-0029 — Filtri avanzati e ricerca full-text (F12): SQLite FTS5 con trigger, rebuild post-restore, gate arm64 come prerequisito di merge, URL come unico stato dei filtri
+
+- Status: Accepted — Fase: F12 — Data: 2026-07-21
+- Contesto: `list_transactions` (`backend/app/routers/transactions.py:36-70`) filtra oggi solo per
+  `year_month`, `category_id`, `account`, `type`, senza alcuna ricerca testuale. Il dataset reale è
+  di 331 transazioni con crescita di circa 50/mese: su questi volumi un `LIKE '%termine%'` sarebbe
+  istantaneo. L'utente ha scelto comunque **FTS5**, accettando il costo di un secondo indice da
+  mantenere coerente, in cambio di ranking, query booleane, match per prefisso e di una base
+  riusabile per un eventuale retrieval AI futuro. Due fatti del progetto rendono la scelta non
+  gratuita: (a) `POST /backup/restore` **sovrascrive il file DB** (ADR-0018 p.5), quindi un indice
+  costruito prima del restore descrive dati che non esistono più; (b) F12 arriva *prima* della
+  chiusura di F7 sul Raspberry, e la disponibilità di FTS5 dipende da come è compilato l'SQLite
+  dell'immagine.
+- Decisione:
+  1. **Tabella virtuale FTS5 `transactions_fts`** su `comment`, `tag`, `category_raw`
+     (content-table sincronizzata con `transactions`), più **tre trigger** INSERT/UPDATE/DELETE e
+     il popolamento iniziale nella migrazione stessa. FastAPI è unico writer (ADR-0001), quindi i
+     trigger sono l'unico punto di sincronizzazione necessario.
+  2. **Gate arm64, prerequisito bloccante del merge del blocco.** Se l'SQLite dell'immagine arm64
+     non avesse FTS5, la migrazione fallirebbe al primo `docker compose up` sul Pi rompendo **il
+     deploy**, non solo la ricerca. Verifica con lo stesso metodo del gate F7 (ADR-0024 p.2):
+     `docker buildx build --platform linux/arm64 --load`, poi nel container emulato
+     `SELECT fts5_version();` deve rispondere. Se fallisce, il blocco **non si mergia**: si torna a
+     `LIKE` e si riapre la decisione con un nuovo ADR. Non è rimandabile alla sessione-Pi: sarebbe
+     scoprire il problema quando è già in produzione.
+  3. **Check fail-fast all'avvio** che l'SQLite in esecuzione abbia FTS5, con errore esplicito se
+     assente — stessa logica del gate, applicata a runtime per l'ambiente reale.
+  4. **Rebuild dell'indice dopo `POST /backup/restore`**, dentro la stessa procedura che già
+     rigenera la replica Metabase. Senza, la ricerca risponderebbe su dati vecchi **senza segnalare
+     nulla**: un errore silenzioso, la categoria peggiore.
+  5. **Filtri su `GET /transactions`**: `date_from`, `date_to`, `category_id`, `account`,
+     `amount_min`, `amount_max`, `type`, `q` (full-text). `year_month` **resta** per compatibilità:
+     è consumato dalla UI esistente e dai test.
+  6. **Raggruppamento** `group_by=category|month|account`, con intestazioni di gruppo e subtotali,
+     senza rompere la paginazione (ADR-0020: ordinamento `date desc, id desc` invariato).
+  7. **URL come unico stato dei filtri**: `useSearchParams` di React Router (già dipendenza, nessuna
+     libreria nuova) è la fonte di verità, e alimenta la `queryKey` di TanStack Query. Nessuno stato
+     di filtro in `useState` parallelo all'URL — due fonti di verità divergono al primo back del
+     browser. Effetto: ogni configurazione di filtri è un permalink incollabile e ricaricabile.
+- Conseguenze: una revision Alembic con rischio medio, ridotto a basso dal gate del punto 2. Il
+  progetto acquisisce un indice secondario, quindi un nuovo modo di essere incoerente: i punti 3 e 4
+  sono le due cinture. Beneficio collaterale registrato ma **fuori scope**: con FTS5 in casa, un
+  tool AI `search_transactions` read-only diventerebbe banale (nota in ADR-0032). Rischio residuo:
+  se in futuro qualcuno scrivesse sul DB fuori da FastAPI, i trigger resterebbero l'unica difesa —
+  accettabile finché ADR-0001 regge.
+
+## ADR-0030 — Dashboard avanzate (F13): estensione del service layer di F6, mai un secondo; "saldo cumulato" non è "patrimonio netto"; Metabase invariata
+
+- Status: Accepted — Fase: F13 — Data: 2026-07-21
+- Contesto: la Dashboard React attuale ha 4 grafici; l'utente ne chiede sei fra cui "andamento
+  patrimonio netto". Verifica sul modello dati: `transactions` è l'unica tabella di fatti, non
+  esistono saldi iniziali, asset, passività né snapshot patrimoniali. Il patrimonio netto (attività
+  meno passività) **non è calcolabile** con i dati presenti: ciò che si può mostrare è la somma
+  cumulata di entrate meno uscite, che coincide col patrimonio solo se si parte da zero e tutto
+  transita dai conti tracciati. Sul lato backend, F6 ha già estratto le aggregazioni in
+  `backend/app/services/insights.py` con filtri opzionali (ADR-0023 p.5), consumato oggi da **due**
+  chiamanti: `GET /insights` e il tool AI `get_insights`.
+- Decisione:
+  1. **Le dashboard React sono complementari a Metabase, che resta invariata.** ADR-0004 e ADR-0019
+     non sono superati: due UI indipendenti sullo stesso backend, nessuna duplicazione di logica di
+     scrittura.
+  2. **Estensione di `services/insights.py`, mai un secondo service layer.** Le aggregazioni nuove
+     entrano nello stesso modulo riusando i filtri esistenti: nessun SQL duplicato. Pannelli React,
+     `GET /insights` e tool AI restano alimentati dalle stesse funzioni.
+  3. **Criterio di accettazione esplicito**: le firme esistenti restano **backward-compatible** —
+     parametri nuovi solo come argomenti opzionali con default, mai riordinati, mai rinominati. I 5
+     test F5 su `GET /insights` senza parametri devono passare **invariati, senza una riga toccata**:
+     se serve modificarli, è la firma ad essere rotta ed è la firma a tornare indietro. **Il tool
+     `get_insights` del registry AI rientra nello stesso criterio di merge**, non in una nota a
+     margine: è il secondo consumatore ed è silenzioso — una firma rotta lì non fallisce a compile
+     time, fallisce la prima volta che il modello chiama il tool, cioè in produzione.
+  4. **Divieto di nomenclatura**: la parola "patrimonio" non compare in UI, tooltip, titoli di
+     pannello né nomi di campo API. Il pannello si chiama **"Saldo cumulato"**. Un'etichetta
+     approssimata, anche fra parentesi, diventa comunque la dicitura che l'utente legge e su cui
+     prende decisioni. Il patrimonio netto reale richiede un modello asset/passività: sottosistema
+     separato, fuori scope, con spec e ADR propri quando partirà.
+  5. **Set di pannelli**: saldo cumulato (area/line) · cash flow mensile (barre entrate/uscite +
+     linea netto, finestra 12 mesi) · spese per categoria (**donut**, top 6 + "altro") · trend
+     risparmio (% = (entrate − uscite)/entrate) · confronto mese su mese (barre + delta %) · riga di
+     4 KPI (entrate, uscite, netto, tasso di risparmio).
+  6. **Donut, non treemap.** Ricerca best practice: il treemap serve a dati gerarchici con molte
+     foglie; sotto una quindicina di categorie comunica *meno* di un donut o di un bar chart, e
+     viene scelto per estetica da cruscotto. La soglia "treemap solo oltre ~15 categorie" è una
+     **nota di design, non una condizione da implementare**: nessun `if` che cambi tipo di grafico
+     a runtime, nessun test che la verifichi. Oggi si implementa il donut.
+  7. **Ogni grafico usa il `chartConfig` condiviso** di ADR-0026 p.6. Nessun colore dichiarato nel
+     componente.
+  8. **Nota sul punto aperto P1**: se la misura su Raspberry (ADR-0025) portasse a fermare Metabase,
+     queste dashboard smetterebbero di essere complementari e diventerebbero l'unica superficie
+     analitica. In quel caso servirà un **ADR successivo che specializza questo**, mai una modifica
+     retroattiva del presente.
+- Conseguenze: nessuna revision Alembic in F13. Il service layer di F6 si consolida come punto unico
+  di aggregazione, il che paga oltre F13. Rischio residuo: la dashboard React e le card SQL di
+  Metabase (F3) calcolano gli stessi indicatori con motori diversi — la verifica incrociata contro i
+  totali noti del dataset F2 (331 transazioni, uscite 9937.70 €, entrate 19497.14 €) resta il
+  controllo che li tiene allineati.
+
+## ADR-0031 — Test di connettività Google Drive (F10): probe write→read→delete, credenziali lette solo da config, errori sanitizzati, cleanup best-effort (specializza ADR-0018 e ADR-0027)
+
+- Status: Accepted — Fase: F10 — Data: 2026-07-21
+- Contesto: il backup su Drive esiste da F4 ma è verificabile solo eseguendo un backup vero, e
+  fallisce in modo silenzioso per scelta (best-effort, ADR-0018 p.3): l'utente scopre che la
+  Service Account non è configurata bene solo leggendo `drive_error` in fondo alla risposta di un
+  backup. Fatto tecnico determinante (`backend/app/drive.py:16`): lo scope OAuth usato è
+  `drive.file`, che rende visibili alla Service Account **solo i file creati da lei**. Ne segue che
+  una `files().list()` su una cartella condivisa ma vuota e una su una cartella **non** condivisa
+  restituiscono lo stesso risultato: nessun file, nessun errore. Un test di sola lettura potrebbe
+  quindi passare mentre il backup fallirebbe.
+- Decisione:
+  1. **`POST /backup/gdrive-test` esegue un probe reale**: crea un file di pochi byte nella cartella
+     configurata, lo rilegge per id, lo cancella. Con scope `drive.file` è **l'unico test che
+     dimostra il permesso effettivamente richiesto dal backup**, cioè la scrittura.
+  2. **Credenziali lette solo internamente. Questo punto specializza ADR-0027 p.6** (blacklist):
+     l'endpoint legge `GDRIVE_BACKUP_FOLDER_ID` e `GOOGLE_SA_KEY_PATH` da `config.py`, **non li
+     accetta nel body** della richiesta e **non li restituisce** nella risposta, nemmeno
+     parzialmente. Il valore circola solo dentro il processo backend.
+  3. **Sanitizzazione degli errori, con meccanismo fissato** — due implementazioni diverse qui
+     divergono subito, e l'errore Drive per una cartella inesistente contiene proprio l'id
+     blacklistato: (a) il messaggio si costruisce dai **campi strutturati** di
+     `googleapiclient.errors.HttpError` (`resp.status`, `reason`), non da `str(exc)`, che è il posto
+     dove l'id finisce; (b) qualunque stringa che esca comunque passa da **una sola** funzione di
+     redazione che fa `str.replace` **letterale** dei valori noti letti da `config`, sostituendoli
+     con segnaposto — **non** una regex euristica che indovina cosa somiglia a un id e sbaglia in
+     entrambe le direzioni; (c) test che chiama l'endpoint con un folder_id fasullo e asserisce che
+     quella stringa non compaia in nessun punto della risposta.
+  4. **Esiti diagnostici distinti**, mai un generico "errore": Service Account non montata, JSON
+     malformato, folder id mancante, cartella non condivisa (404), permesso insufficiente (403),
+     quota superata, timeout. Un messaggio che nomina la causa rimanda alla procedura di condivisione
+     cartella già documentata in `docs/SECURITY.md`.
+  5. **Cleanup best-effort, non garanzia.** Nome deterministico
+     `portfolio_gdrive_probe_<YYYYMMDD_HHMMSS>.probe`, con prefisso **distinto** da `BACKUP_PREFIX`
+     così che la retention dei backup non lo tocchi mai e viceversa. Se la creazione riesce e la
+     lettura va in timeout (rete caduta, i 30s di `DRIVE_TIMEOUT_SECONDS` scaduti) il backend
+     potrebbe non riuscire nemmeno a cancellare: il test **fallisce con l'errore reale** e non lo
+     maschera dichiarando successo, la cancellazione è tentata comunque in un `finally`, e **ogni
+     esecuzione inizia rimuovendo gli orfani** che matchano il prefisso. Un residuo su Drive non è
+     un fallimento dell'app — stesso spirito non-bloccante di ADR-0018 p.3/p.4.
+  6. **Il pulsante in UI non espone nulla**: mostra esito e dettaglio diagnostico, mai il folder id,
+     che non è né visibile né modificabile (ADR-0027 p.6).
+- Conseguenze: nessuna modifica di schema, nessuna dipendenza nuova (riusa `get_drive_service` di
+  F4). La configurazione Drive diventa verificabile **prima** di scoprirla rotta durante un backup.
+  Trade-off accettato e dichiarato in `docs/SECURITY.md`: il test **scrive davvero** nel Drive
+  dell'utente, sia pure un file effimero di pochi byte.
+
+## ADR-0032 — Persistenza chat AI (F14): `chat_sessions`/`chat_messages`, finestra di contesto troncata nell'adapter, scrittura solo dal router, modello sempre read-only (specializza ADR-0023)
+
+- Status: Accepted — Fase: F14 — Data: 2026-07-21
+- Contesto: ADR-0023 p.6 ha scelto per F6 un layer AI **stateless**: nessuna memoria fra chiamate,
+  nessuna tabella, nessuna revision. La conseguenza pratica è che una domanda di follow-up ("e il
+  mese prima?") non è rispondibile, perché il modello non sa a cosa si riferisca. L'utente chiede
+  storicità delle conversazioni e memoria. Fatti dal codice: `AIProvider.answer(question, session)`
+  è una classe astratta con un solo adapter concreto (`gemini.py`) e un fake usato nei test via
+  `dependency_overrides`; `POST /ai/query` restituisce già una lista `tools_used` nella forma
+  `[{name, args, result_summary}]` (`backend/app/routers/ai.py:82-85`). Il registry
+  (`backend/app/ai/tools.py`) contiene 4 tool **tutti read-only**, con guardrail testato.
+  L'utente ha scelto la memoria conversazionale **senza RAG**: i tool esistenti coprono già le query
+  sui dati, e un retrieval vettoriale porterebbe una dipendenza nativa da compilare per arm64
+  (rischio diretto su F7) per un beneficio non dimostrato su poche centinaia di righe.
+- Decisione:
+  1. **Due tabelle**: `chat_sessions (id, title, created_at, updated_at)` e `chat_messages (id,
+     session_id FK, role, content, tools_json, created_at)`, con indice su `(session_id,
+     created_at)`. Questo **specializza** ADR-0023 p.6, che dichiarava l'assenza di tabelle: lo
+     stateless era una scelta di scope della fase, non un invariante di architettura.
+  2. **Formato di `tools_json` fissato ora**, prima dell'implementazione: è il tipo di dettaglio
+     che, deciso implicitamente da chi scrive per primo, diventa costoso da cambiare perché i dati
+     storici sono già nel formato sbagliato. Colonna **TEXT** contenente una stringa JSON
+     (`json.dumps`) il cui contenuto è **la stessa lista già restituita da `POST /ai/query`**:
+     `[{"name": …, "args": {…}, "result_summary": …}]`. Un solo shape in tutto il sistema — risposta
+     API, riga di DB e rendering della traccia leggono la stessa struttura. `NULL` per i messaggi
+     `role="user"`. Nessuna tabella `chat_tool_calls`: sarebbe normalizzare un payload che non viene
+     mai interrogato per campo, solo riletto intero.
+  3. **Contratto provider**: `AIProvider.answer(question, session, history=None)`. È un **breaking
+     change** su una classe astratta, e `history=None` con default fa compilare tutto senza fallire
+     — una regressione sarebbe silenziosa. **Ordine dei task obbligatorio**: (1) aggiornare il fake
+     provider perché registri la history ricevuta **e il suo numero di elementi**, e scrivere il
+     test che asserisce l'arrivo delle ultime N coppie — **il test deve fallire qui**, ed è l'unico
+     momento in cui si vede che sta misurando qualcosa; (2) solo dopo cambiare la firma su
+     `AIProvider` e sull'adapter; (3) infine router, persistenza e UI. Criterio di merge del blocco:
+     evidenza documentata del passaggio rosso→verde **più** suite verde dopo il cambio di firma —
+     la sola suite verde non dimostrerebbe nulla.
+  4. **Il troncamento vive nell'adapter, non nel router.** Il router carica dal DB e passa la
+     conversazione; l'adapter applica il cap `ai_history_max_turns` (default 6, configurabile da
+     `/settings`, ADR-0027) prima di chiamare il provider. Il limite di contesto è una proprietà del
+     provider e del modello, non del dominio: metterlo nel router lo imporrebbe a ogni adapter
+     futuro. Due test distinti lo verificano: sul fake, la history arriva **completa** dal router;
+     sull'adapter in isolamento, una history lunga viene **troncata** prima della chiamata.
+  5. **Endpoint e cancellazioni distinte**, con la cautela applicata dove serve — precedenti:
+     ADR-0018 p.5 (`confirm: true` obbligatorio sulle operazioni distruttive) e ADR-0019 p.6
+     (conferma a 2 step in UI):
+     - `POST /ai/query` accetta un `session_id` opzionale (assente → nuova sessione);
+     - `GET /ai/sessions` (elenco), `GET /ai/sessions/{id}` (messaggi);
+     - `DELETE /ai/sessions/{id}` — **una sola** conversazione, **senza `confirm`**: la perdita è
+       circoscritta e l'utente ha appena indicato quale riga colpire;
+     - `DELETE /ai/sessions` — **azzera tutto lo storico**, `confirm: true` **obbligatorio**. È
+       l'endpoint dietro il pulsante "Azzera storico", e qui la conferma serve perché non esiste
+       modo di ricostruire cosa è andato perso.
+  6. **Il modello resta read-only, senza eccezioni.** La persistenza è scritta **dal router**, mai
+     da un tool: nessun tool di scrittura entra nel registry, e ADR-0023 p.4 resta invariato. Test
+     di regressione che scandisce il registry dopo l'introduzione della persistenza — è
+     esattamente il momento in cui la tentazione di "un tool che salva" sarebbe più forte.
+  7. **Nessun RAG.** Scartati sia il retrieval vettoriale (dipendenza nativa, rischio arm64 su F7,
+     costo di embedding a ogni import) sia, per ora, un tool di ricerca testuale. Nota: l'indice
+     FTS5 introdotto da ADR-0029 renderebbe banale un `search_transactions` read-only — registrato
+     come evoluzione futura, **fuori scope qui**.
+  8. **Conseguenza privacy, da documentare in `docs/SECURITY.md`**: la finestra di contesto viene
+     **rispedita al provider a ogni domanda successiva**, quindi il volume di dati in egress cresce
+     con la lunghezza della conversazione, e le conversazioni restano **persistite in locale** fino
+     a cancellazione esplicita. "Azzera storico" è anche una leva di privacy, non solo di pulizia.
+     ADR-0023 p.9 resta valido e si estende: l'egress avviene sempre e solo su submit esplicito.
+- Conseguenze: una revision Alembic (due tabelle nuove, rischio nullo). Il costo per domanda cresce
+  con la lunghezza della conversazione — il cap del punto 4 è la leva che lo governa, ed è
+  configurabile senza rilascio. Rischio residuo accettato: una conversazione lunga può far uscire
+  dalla rete locale più dati di quanti l'utente ricordi di aver inviato; mitigato dal cap, dalla
+  traccia dei tool sempre visibile (ADR-0023 p.11) e dal pulsante di azzeramento.

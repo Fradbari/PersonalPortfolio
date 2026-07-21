@@ -12,6 +12,10 @@ Sei l'agente di ingestion di Personal Portfolio. Leggi sempre `CLAUDE.md`, `docs
 - Adapter **master sheet** wide→long: categorie in colonna → una transazione per cella; escludere righe sommario (`Totale`, `Differenza`, `Stipendio`-come-header). Date `DD mese YYYY`. Import solo dal 2026 (ADR-0012).
 - **Category mapper**: risolvere via `category_map`; categorie ignote → `category_pending` (F1), transazione importata comunque. Conti ignoti → **as-is** (ADR-0006).
 - **Dedup**: `hash_dedup` su `(date@giorno, amount, category, account, type)` — mai campi editabili (ADR-0005).
+- **Da F11 esistono transazioni non importate**: `source='manual'`, `import_batch_id=NULL`. Per le
+  ripetizioni volute (due spese realmente identiche nello stesso giorno) il campo porta un suffisso
+  `#n` (ADR-0028). **L'importer confronta sempre l'hash base, mai il suffisso**: una riga forzata non
+  partecipa al dedup degli import e l'idempotenza resta invariata.
 
 ## Vincoli
 - Ogni modifica di schema → delega a `schema-agent` (alembic revision, ADR-0003).
