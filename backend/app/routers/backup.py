@@ -14,6 +14,7 @@ from app.backup import BACKUP_PREFIX, apply_local_retention, create_backup, list
 from app.config import settings
 from app.db import engine, refresh_read_only_replica
 from app.drive import apply_drive_retention, get_drive_service, upload_file
+from app.services.settings import get_effective
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,16 @@ router = APIRouter(prefix="/backup", tags=["backup"])
 
 def run_backup() -> dict:
     """Punto unico riusato dall'endpoint manuale e dal job opzionale all'avvio
-    (ADR-0018 punto 6)."""
+    (ADR-0018 punto 6).
+
+    `backup_retention` e' letto via `get_effective` (F9, ADR-0027 p.3: DB > env >
+    default) invece che da `config.settings` direttamente. Nessuna sessione e'
+    disponibile qui: `run_backup()` e' chiamato sia dall'endpoint `POST /backup`
+    sia dal thread di avvio (`main.py`, nessuna richiesta HTTP in corso) -> si
+    lascia `get_effective` aprire/chiudere una propria `SessionLocal`
+    (`session=None`, il default della funzione)."""
     result = create_backup(engine, settings.db_path, settings.backup_dir)
+    backup_retention, _source = get_effective("backup_retention")
 
     drive_uploaded = False
     drive_error: str | None = None
@@ -40,12 +49,12 @@ def run_backup() -> dict:
             upload_file(service, result.db_path, settings.gdrive_backup_folder_id)
             upload_file(service, result.xlsx_path, settings.gdrive_backup_folder_id)
             drive_uploaded = True
-            drive_deleted = apply_drive_retention(service, settings.gdrive_backup_folder_id, settings.backup_retention)
+            drive_deleted = apply_drive_retention(service, settings.gdrive_backup_folder_id, backup_retention)
     except Exception as exc:  # SA malformata/rete/permessi Drive: best-effort (ADR-0004/ADR-0018)
         drive_error = str(exc)
         logger.warning("Backup Drive fallito (non bloccante): %s", exc)
 
-    local_deleted = apply_local_retention(settings.backup_dir, settings.backup_retention)
+    local_deleted = apply_local_retention(settings.backup_dir, backup_retention)
 
     return {
         "db_path": result.db_path,

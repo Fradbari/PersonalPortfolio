@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.routers import accounts, ai, backup, categories, imports, insights, settings as settings_router, transactions
+from app.services.settings import get_effective
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,11 @@ def _run_startup_backup() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if settings.backup_on_startup:
+    # backup_on_startup letto via get_effective (F9, ADR-0027 p.3: DB > env > default)
+    # invece che da config.settings direttamente -- letto al boot, coerente con
+    # "solo al boot successivo" della whitelist. Nessuna sessione disponibile qui
+    # (fuori da una richiesta HTTP): session=None (default di get_effective).
+    if get_effective("backup_on_startup")[0]:
         threading.Thread(target=_run_startup_backup, daemon=True).start()
     yield
 

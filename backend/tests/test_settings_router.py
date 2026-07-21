@@ -25,6 +25,7 @@ from app.config import settings as app_settings
 from app.db import Base, get_session
 from app.models import Settings
 from app.routers import settings as settings_router
+from app.services import settings as settings_service
 from app.services.settings import BLACKLIST, WHITELIST
 
 
@@ -177,13 +178,25 @@ def test_put_settings_blacklisted_key_and_unknown_key_return_identical_message()
 # --- Boot reale: nessun AttributeError da shadowing di app.config.settings ---
 
 
-def test_main_app_boots_without_shadowing_app_config_settings():
+def test_main_app_boots_without_shadowing_app_config_settings(monkeypatch):
     """Rischio identificato in pianificazione T3: un import nudo di `settings`
     (il router) nella riga `from app.routers import ...` di `main.py`
     sovrascriverebbe silenziosamente `from app.config import settings` (riga
     precedente) — errore che NON esplode all'import, solo al primo utilizzo
     reale di `settings.backup_on_startup` (lifespan) o `settings.db_path`
-    (`/health`). Import reale del modulo + trigger di entrambi i path."""
+    (`/health`). Import reale del modulo + trigger di entrambi i path.
+
+    Da T5: il lifespan legge `backup_on_startup` via `get_effective`, che
+    apre una `SessionLocal` reale per interrogare la tabella `settings` --
+    puntata qui a un DB di test in-memory (altrimenti userebbe il
+    `db_path` di default di `app.config.Settings`, un path che in un
+    ambiente di sviluppo locale senza container puo' non esistere)."""
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
+    )
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(settings_service, "SessionLocal", sessionmaker(bind=engine, future=True))
+
     from app import main as main_module
 
     with TestClient(main_module.app) as client:  # trigghera il lifespan (startup)
