@@ -651,6 +651,25 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   v3 a mano finché non si deciderà la migrazione. Vincolo permanente introdotto: **ogni grafico
   nuovo passa dal `chartConfig` condiviso** — un `stroke="#..."` in una PR è un difetto, non una
   scelta.
+- **Rettifica (2026-07-21, spec di dettaglio Blocco A** —
+  `docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md`**)**: quattro correzioni di dettaglio
+  implementativo emerse dalla verifica sul codice, nessun cambio di decisione.
+  1. **p.2, elenco token incompleto**: si aggiungono `--primary-foreground`,
+     `--destructive-foreground`, `--success-foreground`, `--warning`, `--warning-foreground`
+     (le coppie foreground servono a `bg-primary text-white` e simili, che in dark si rompono;
+     warning serve al banner di troncamento di `AiAssistant.tsx` oggi in amber hardcoded).
+  2. **p.6, meccanismo dei colori chart**: `chart-config.ts` esporta **stringhe**
+     `hsl(var(--chart-N))` passate tal quali a Recharts — il browser le risolve al toggle del tema.
+     **Non** si usa `getComputedStyle`: si valuta al mount e lascerebbe i grafici col colore vecchio
+     dopo il toggle finché non rimontano. Il tooltip (unico nodo HTML, non SVG) usa `contentStyle`
+     con le stesse stringhe.
+  3. **M8.4, componenti shadcn**: `ChartContainer`/`ChartTooltip` **non si portano**. Il loro
+     compito (iniettare CSS var per serie, avvolgere `ResponsiveContainer`) è già coperto dalle
+     stringhe del punto 2 e da `ResponsiveContainer` già in uso; il bisogno residuo è ~6 righe di
+     `contentStyle` in `chart-config.ts`.
+  4. **Contesto, conteggio esadecimali**: sono **6**, non 5 — `Dashboard.tsx:71` ne ha due sulla
+     stessa riga (`stroke="#7c3aed" fill="#ddd6fe"`). Il criterio di accettazione conta i match del
+     grep, non le righe.
 
 ## ADR-0027 — Settings centralizzati (F9): `/settings` unico punto di configurazione UI, tabella key/value, precedenza DB > env > default, whitelist esplicita e blacklist permanente
 
@@ -717,6 +736,20 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   che prima non esisteva, e che ADR-0031 specializza per il caso Drive. Rischio residuo accettato:
   la precedenza DB > env può disorientare chi cambia una env var e non vede effetti — mitigato
   mostrando in `/settings` il valore effettivo e la sua provenienza.
+- **Rettifica (2026-07-21, spec di dettaglio Blocco A** —
+  `docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md`**)**: due correzioni di dettaglio
+  implementativo, nessun cambio di decisione.
+  1. **M9.5, path della pagina**: la pagina React è **`/impostazioni`**, l'endpoint resta
+     `/settings`. Motivo: ADR-0033 — un path esatto condiviso tra endpoint API e route SPA produce
+     il difetto già in produzione su `/backup` (hard-refresh → JSON grezzo). Il vincolo di prodotto
+     del punto 1 ("unico punto di configurazione esposto all'utente") resta identico: cambia solo
+     l'URL della pagina.
+  2. **p.8, test di blacklist**: la formulazione "fallisce se una chiave blacklistata compare in
+     qualunque punto della risposta" si contraddice col punto 6, che **impone** i nomi dei secret
+     dentro `secrets_status`. Il test si riformula su tre asserzioni: (a) nessun **valore** di
+     secret nella risposta (sentinelle iniettate in config); (b) nessuna chiave blacklistata
+     nell'array `settings[]`; (c) `PUT` su chiave blacklistata e su chiave inesistente → 400 con
+     **messaggio identico**, altrimenti la differenza permette di enumerare la blacklist.
 
 ## ADR-0028 — Inserimento manuale (F11): `POST /transactions`, `source='manual'`, duplicato consapevole con ordinale `#n` (specializza ADR-0005/ADR-0013)
 
@@ -987,3 +1020,46 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   configurabile senza rilascio. Rischio residuo accettato: una conversazione lunga può far uscire
   dalla rete locale più dati di quanti l'utente ricordi di aver inviato; mitigato dal cap, dalla
   traccia dei tool sempre visibile (ADR-0023 p.11) e dal pulsante di azzeramento.
+
+## ADR-0033 — Routing (Blocco A): nessuna route SPA condivide un path esatto con un endpoint API (supera ADR-0022)
+
+- Status: Accepted — Fase: Blocco A (F8/F9) — Data: 2026-07-21
+- Contesto: durante la pianificazione di dettaglio del Blocco A è stato verificato **in produzione**
+  (container attivo) un difetto di routing:
+
+  ```
+  GET /backup      (Accept: text/html) -> 200 application/json   <- SPA rotta
+  GET /transazioni (Accept: text/html) -> 200 text/html          <- ok
+  ```
+
+  Causa: l'endpoint API `GET /backup` e la pagina SPA `/backup` condividono il **path esatto**;
+  Starlette fa match per ordine di registrazione e il router API precede il catch-all SPA, quindi
+  un hard-refresh del browser su quella pagina mostra JSON grezzo invece dell'app. DEBT-04/ADR-0022
+  avevano corretto il sintomo **solo nel dev server Vite** (bypass su header `Accept` nel proxy):
+  la produzione è rimasta rotta da F5 in poi senza che nessuno lo notasse — il difetto è invisibile
+  navigando via sidebar e appare solo al reload diretto. La pagina `/settings` prevista da ADR-0027
+  sarebbe nata con lo stesso identico difetto.
+- Decisione:
+  1. **Regola permanente**: per ogni path servito dall'app, o è un endpoint API o è una route SPA —
+     **mai entrambi**. Convenzione che la rende naturale: pagine in **italiano**
+     (`/transazioni`, `/conti`, `/categorie-pending`, `/assistente-ai`, `/impostazioni`,
+     `/backup-restore`), endpoint in **inglese**. Le due collisioni storiche (`/import`, `/backup`)
+     erano parole identiche nelle due lingue.
+  2. **Applicazione nel Blocco A**: la pagina settings nasce su `/impostazioni` (endpoint
+     `/settings`, rettifica ADR-0027 M9.5); la pagina Backup si sposta su `/backup-restore`
+     (label sidebar invariata, "Backup"). **Nessun redirect** da `/backup`: app single-user su rete
+     locale, nessun bookmark condiviso da preservare (ADR-0009).
+  3. **Enforcement meccanico, non disciplinare**: costante `SPA_ROUTES` (`frozenset`) in
+     `backend/app/main.py` a livello di modulo, commento incrociato con `frontend/src/App.tsx`;
+     blocco SPA estratto nella funzione `mount_spa(app, dist_dir)` così da essere testabile su
+     app di prova. Due test di regressione: (a) invariante — intersezione tra `SPA_ROUTES` e i
+     path esatti degli endpoint registrati **vuota**, più contenuto esatto della costante;
+     (b) comportamento HTTP — `mount_spa` su directory temporanea, `GET /settings`→JSON,
+     `GET /impostazioni`→html, `GET /backup`→JSON, `GET /backup-restore`→html.
+  4. **ADR-0022 superato**: il bypass `Accept` nel proxy Vite viene rimosso — la collisione che
+     aggirava non esiste più. Il proxy `/backup` torna semplice.
+- Conseguenze: la classe di difetti "hard-refresh mostra JSON" è chiusa da un test, non da una
+  convenzione. Ogni route SPA futura va aggiunta sia in `App.tsx` sia in `SPA_ROUTES` (il test
+  fallisce se divergono in modo che crei collisione, e le asserzioni di contenuto intercettano la
+  costante lasciata parziale). Costo accettato: l'URL `/backup` cessa di servire la pagina — chi
+  lo avesse salvato deve aggiornare il bookmark, scelta dichiarata e a impatto nullo in single-user.
