@@ -68,10 +68,35 @@ def health():
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend_dist")
 
-if os.path.isdir(FRONTEND_DIST):
+# Route SPA registrate in frontend/src/App.tsx (ADR-0033: nessuna condivide il
+# path esatto con un endpoint API). Tenere allineata a quel file -- un test di
+# regressione (T7) verifica questo insieme, non la disciplina. frozenset a
+# livello di modulo cosi' esiste anche quando FRONTEND_DIST non e' presente
+# (dev locale senza build), per essere importabile dai test in entrambi i casi.
+SPA_ROUTES = frozenset(
+    {
+        "/",
+        "/transazioni",
+        "/import",
+        "/categorie-pending",
+        "/conti",
+        "/backup-restore",
+        "/assistente-ai",
+        "/impostazioni",
+    }
+)
+
+
+def mount_spa(app: FastAPI, dist_dir: str) -> None:
+    """Monta la SPA React compilata: assets statici + favicon + catch-all.
+
+    Estratta dal blocco un tempo inline sotto `if os.path.isdir(FRONTEND_DIST):`
+    per essere invocabile anche su un'app di prova nei test (T6b), a comportamento
+    di produzione identico.
+    """
     # Build Docker con frontend compilato: serve la SPA React su "/" e fallback
     # client-side routing per ogni path non gia' gestito da un router API sopra.
-    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="frontend-assets")
+    app.mount("/assets", StaticFiles(directory=os.path.join(dist_dir, "assets")), name="frontend-assets")
 
     # File statici copiati da frontend/public/ alla root del build Vite (non sotto
     # /assets, che contiene solo il bundle JS/CSS con hash). Registrati PRIMA del
@@ -79,11 +104,15 @@ if os.path.isdir(FRONTEND_DIST):
     # specificita' di path, quindi devono precedere "/{full_path:path}" (DEBT-02).
     @app.get("/favicon.svg")
     def favicon():
-        return FileResponse(os.path.join(FRONTEND_DIST, "favicon.svg"))
+        return FileResponse(os.path.join(dist_dir, "favicon.svg"))
 
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
-        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+        return FileResponse(os.path.join(dist_dir, "index.html"))
+
+
+if os.path.isdir(FRONTEND_DIST):
+    mount_spa(app, FRONTEND_DIST)
 else:
     # Dev locale senza build frontend (es. backend lanciato da solo): fallback JSON.
     @app.get("/")
