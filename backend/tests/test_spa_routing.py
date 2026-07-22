@@ -11,20 +11,28 @@ costruisce). Qui invece, in un file nuovo e dedicato (distinto da
 dei rispettivi router, non l'instradamento SPA/API):
 
 - Test 1 verifica l'invariante statico di ADR-0033 (nessuna `SPA_ROUTES`
-  coincide con un path API esatto). Usa i router reali importati da `main.py`
-  (`imports.router`, `categories.router`, ecc. -- gli stessi oggetti passati a
-  `app.include_router` in main.py) invece di ispezionare `app.main.app` gia'
-  assemblato: quest'ultimo si comporta diversamente a seconda che
-  `frontend_dist` esista o meno sul filesystem in cui gira il processo di
-  test. Quando NON esiste (questo e' il caso in questo ambiente di sviluppo,
-  che non ha un frontend buildato), `main.py` registra un fallback JSON di
-  sviluppo proprio su path "/" (`@app.get("/") def root()`), che nell'insieme
-  dei path di `app.routes` collide letteralmente con "/" in `SPA_ROUTES` pur
-  non essendo affatto una violazione di ADR-0033 -- i due rami (fallback dev
-  vs `mount_spa()`) sono mutuamente esclusivi, mai registrati insieme. Usare
-  direttamente gli oggetti router bypassa quel ramo condizionale ed e'
-  identico con o senza `frontend_dist` presente, cosi' come `SPA_ROUTES`
-  stessa (definita a livello di modulo, fuori dall'if -- T6b).
+  coincide con un path API esatto). Ispeziona direttamente `app.main.app`
+  (stesso pattern di `test_ai_router.py:190`, `from app.main import app as
+  ...`) -- l'app reale assemblata da main.py, sempre sincronizzata per
+  costruzione con qualunque `app.include_router(...)` presente o futuro,
+  invece di una lista di router mantenuta a mano nel test (fragile: un router
+  aggiunto a `main.py` senza aggiornare quella lista lascerebbe il test cieco
+  proprio al tipo di regressione che deve impedire -- finding T7-review).
+  L'unica particolarita' da gestire e' che `app.main.app` si comporta
+  diversamente a seconda che `frontend_dist` esista o meno sul filesystem in
+  cui gira il processo di test: quando NON esiste (questo e' il caso in
+  questo ambiente di sviluppo, che non ha un frontend buildato), `main.py`
+  registra un fallback JSON di sviluppo proprio su path "/" (`@app.get("/")
+  def root()`), che collide letteralmente con "/" in `SPA_ROUTES` pur non
+  essendo affatto una violazione di ADR-0033 -- i due rami (fallback dev vs
+  `mount_spa()`) sono mutuamente esclusivi, mai registrati insieme.
+  `_registered_api_paths()` esclude quella sola route per IDENTITA' della
+  funzione endpoint (`route.endpoint is main_module.root`), non per il suo
+  path, cosi' da non nascondere mai una vera futura violazione su "/". Quando
+  `frontend_dist` e' presente, `main_module.root` non esiste come attributo
+  di modulo (`getattr(..., None)` -> `None`): l'esclusione diventa un no-op
+  innocuo, dato che in quel ramo "/" e' servito da `serve_frontend`
+  (`/{full_path:path}`), gia' escluso perche' parametrizzato.
 - Test 2 verifica il comportamento HTTP end-to-end: costruisce un'app di prova
   con i router reali + `mount_spa()` su una directory temporanea (fixture
   `tmp_path`, mai una directory nel repo), e prova le 4 combinazioni richieste
@@ -38,6 +46,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import main as main_module
 from app.db import Base, get_session
 from app.main import SPA_ROUTES, mount_spa
 from app.routers import (
@@ -65,6 +74,11 @@ _EXPECTED_SPA_ROUTES = frozenset(
 )
 
 # Stessi router (e stesso ordine) di `app.include_router(...)` in main.py.
+# Usati SOLO dal Test 2 (`_build_test_app_with_spa`) per assemblare un'app di
+# prova con `mount_spa()` puntato a una directory temporanea -- non piu' da
+# `_registered_api_paths()` (Test 1), che ora ispeziona `app.main.app` reale
+# direttamente (T7-review) proprio per non dipendere da questa lista tenuta a
+# mano.
 _API_ROUTERS = (
     imports.router,
     categories.router,
@@ -78,17 +92,40 @@ _API_ROUTERS = (
 
 
 def _registered_api_paths() -> frozenset[str]:
-    """Path esatti (non parametrizzati) di tutti i router API inclusi in
-    `main.py`, piu' `/health` (registrato direttamente su `app`, non tramite
-    router, in main.py). I path parametrizzati (es.
-    `/transactions/{transaction_id}`) sono esclusi: non possono mai coincidere
-    carattere per carattere con una voce letterale di `SPA_ROUTES`."""
-    paths = {"/health"}
-    for r in _API_ROUTERS:
-        for route in r.routes:
-            path = getattr(route, "path", None)
-            if path and "{" not in path:
-                paths.add(path)
+    """Path esatti (non parametrizzati) di ogni route effettivamente
+    registrata su `app.main.app` -- l'app reale assemblata da main.py, non
+    una lista di router ricostruita a mano nel test (finding T7-review: una
+    lista manuale non vedrebbe mai un router futuro aggiunto a `main.py`
+    senza aggiornarla anche qui). Resta cosi' automaticamente completo
+    rispetto a qualunque router aggiunto in futuro (Blocco B/C: F11/F12/...).
+
+    Esclude:
+    - i path parametrizzati (es. `/transactions/{transaction_id}`), che non
+      possono mai coincidere carattere per carattere con una voce letterale
+      di `SPA_ROUTES`;
+    - la sola route del fallback JSON dev-only `root()` (ramo `else:` di
+      `main.py`, registrato su "/" solo quando `frontend_dist` NON esiste sul
+      filesystem di questo processo -- il caso di questo ambiente di
+      sviluppo). Esclusa per IDENTITA' della funzione endpoint
+      (`route.endpoint is main_module.root`), non per il suo path "/": se in
+      futuro una vera route API venisse registrata su "/" da un endpoint
+      diverso da `root`, questa esclusione non la nasconderebbe. Quando
+      `frontend_dist` e' presente (build di produzione/Docker),
+      `main_module.root` non esiste come attributo di modulo (il ramo
+      `else:` non viene eseguito): `getattr(..., None)` vale `None`, il
+      confronto per identita' e' sempre falso, quindi l'esclusione e' un
+      no-op innocuo -- in quel ramo "/" e' servito da `serve_frontend`
+      (route `/{full_path:path}`), gia' escluso perche' parametrizzato.
+    """
+    dev_root = getattr(main_module, "root", None)
+    paths: set[str] = set()
+    for route in main_module.app.routes:
+        path = getattr(route, "path", None)
+        if not path or "{" in path:
+            continue
+        if dev_root is not None and getattr(route, "endpoint", None) is dev_root:
+            continue
+        paths.add(path)
     return frozenset(paths)
 
 
