@@ -21,11 +21,18 @@ export default defineConfig({
       // sotto-path specifici elimina la collisione senza perdere copertura API.
       '/import/my-finance': 'http://localhost:8000',
       '/import/historical': 'http://localhost:8000',
-      // '/backup': la pagina SPA e' ora su '/backup-restore' (ADR-0033: route SPA e
-      // endpoint API non condividono mai lo stesso path esatto), quindi la collisione
-      // che giustificava il bypass su Accept header (ADR-0022) non esiste piu' -> proxy
-      // semplice come gli altri prefissi API.
-      '/backup': 'http://localhost:8000',
+      // '/backup': la collisione di path ESATTO con la pagina SPA non esiste piu' da
+      // quando questa e' su '/backup-restore' (ADR-0033). Resta pero' una collisione di
+      // PREFISSO: il matching di Vite e' "path.startsWith(chiave)", quindi la chiave
+      // '/backup' come stringa semplice intercetterebbe anche '/backup-restore' (che
+      // inizia per '/backup') e la instraderebbe erroneamente al backend invece di
+      // lasciarla al fallback SPA di Vite. bypass esclude solo quell'esatta route SPA;
+      // l'endpoint reale e i suoi sotto-path ('/backup', '/backup/restore') passano
+      // regolarmente al backend.
+      '/backup': {
+        target: 'http://localhost:8000',
+        bypass: (req) => (req.url === '/backup-restore' ? req.url : undefined),
+      },
       '/settings': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
       // '/ai': prefisso API per POST /ai/query (F6). La pagina SPA e' su
