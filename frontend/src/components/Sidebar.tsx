@@ -7,8 +7,9 @@ const links = [
   { to: '/import', label: 'Import' },
   { to: '/categorie-pending', label: 'Categorie pending' },
   { to: '/conti', label: 'Conti' },
-  { to: '/backup', label: 'Backup' },
+  { to: '/backup-restore', label: 'Backup' },
   { to: '/assistente-ai', label: 'Assistente AI' },
+  { to: '/impostazioni', label: 'Impostazioni' },
 ]
 
 export function Sidebar() {
