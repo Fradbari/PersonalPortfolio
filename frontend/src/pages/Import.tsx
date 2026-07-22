@@ -34,10 +34,10 @@ export function Import() {
           Importa
         </Button>
         {myFinanceMutation.data ? (
-          <pre className="mt-3 rounded bg-gray-100 p-3 text-xs">{JSON.stringify(myFinanceMutation.data, null, 2)}</pre>
+          <pre className="mt-3 rounded bg-muted p-3 text-xs">{JSON.stringify(myFinanceMutation.data, null, 2)}</pre>
         ) : null}
         {myFinanceMutation.error ? (
-          <p className="mt-2 text-red-600">{(myFinanceMutation.error as Error).message}</p>
+          <p className="mt-2 text-destructive">{(myFinanceMutation.error as Error).message}</p>
         ) : null}
       </section>
 
@@ -71,10 +71,10 @@ export function Import() {
           </Button>
         </div>
         {dryRunResult ? (
-          <pre className="mt-3 rounded bg-gray-100 p-3 text-xs">{JSON.stringify(dryRunResult, null, 2)}</pre>
+          <pre className="mt-3 rounded bg-muted p-3 text-xs">{JSON.stringify(dryRunResult, null, 2)}</pre>
         ) : null}
         {commitMutation.data ? (
-          <pre className="mt-3 rounded bg-green-50 p-3 text-xs">{JSON.stringify(commitMutation.data, null, 2)}</pre>
+          <pre className="mt-3 rounded bg-success/10 p-3 text-xs">{JSON.stringify(commitMutation.data, null, 2)}</pre>
         ) : null}
       </section>
     </div>

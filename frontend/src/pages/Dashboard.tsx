@@ -29,12 +29,12 @@ export function Dashboard() {
   })
 
   if (isLoading) return <p>Caricamento...</p>
-  if (error) return <p className="text-red-600">Errore: {(error as Error).message}</p>
+  if (error) return <p className="text-destructive">Errore: {(error as Error).message}</p>
   if (!data) return null
 
   return (
     <div className="grid grid-cols-2 gap-6">
-      <div className="rounded-lg border bg-white p-4">
+      <div className="rounded-lg border bg-card p-4">
         <h2 className="mb-4 font-semibold">Entrate vs uscite (mensile)</h2>
         <ResponsiveContainer width="100%" height={250}>
           <LineChart data={data.monthly_trend}>
@@ -48,7 +48,7 @@ export function Dashboard() {
         </ResponsiveContainer>
       </div>
 
-      <div className="rounded-lg border bg-white p-4">
+      <div className="rounded-lg border bg-card p-4">
         <h2 className="mb-4 font-semibold">Spesa per categoria</h2>
         <ResponsiveContainer width="100%" height={250}>
           <BarChart data={data.category_breakdown}>
@@ -61,7 +61,7 @@ export function Dashboard() {
         </ResponsiveContainer>
       </div>
 
-      <div className="rounded-lg border bg-white p-4">
+      <div className="rounded-lg border bg-card p-4">
         <h2 className="mb-4 font-semibold">Saldo cumulato</h2>
         <ResponsiveContainer width="100%" height={250}>
           <AreaChart data={data.cumulative_balance}>
@@ -79,7 +79,7 @@ export function Dashboard() {
         </ResponsiveContainer>
       </div>
 
-      <div className="rounded-lg border bg-white p-4">
+      <div className="rounded-lg border bg-card p-4">
         <h2 className="mb-4 font-semibold">Saldo per conto</h2>
         <ResponsiveContainer width="100%" height={250}>
           <BarChart data={data.balance_by_account} layout="vertical">

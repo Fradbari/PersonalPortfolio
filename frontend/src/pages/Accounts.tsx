@@ -35,7 +35,7 @@ export function Accounts() {
       <h2 className="mb-4 text-lg font-semibold">Conti</h2>
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b text-left text-gray-500">
+          <tr className="border-b text-left text-muted-foreground">
             <th className="py-2">Nome sorgente</th>
             <th>Nome visualizzato</th>
             <th></th>
@@ -84,7 +84,7 @@ export function Accounts() {
         </tbody>
       </table>
       {renameMutation.error ? (
-        <p className="mt-3 text-red-600">{(renameMutation.error as Error).message}</p>
+        <p className="mt-3 text-destructive">{(renameMutation.error as Error).message}</p>
       ) : null}
     </div>
   )
