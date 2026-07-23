@@ -46,7 +46,10 @@ F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6
 `f8-f9-theme-settings` aperto (2026-07-21); spec di dettaglio
 [docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md](docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md)
 e piano [docs/superpowers/plans/f8-f9-implementation-plan.md](docs/superpowers/plans/f8-f9-implementation-plan.md)
-approvati (task T0-T14, T0 eseguito). ADR-0033 scritto. Nessun codice applicativo ancora toccato.
+approvati (task T0-T14). **Stato al 2026-07-22: T0-T12 completati e committati, 3/3 checkpoint
+umani superati** (dettaglio task-per-task in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
+righe F8/F9 della tabella "Stato avanzamento" e "Prompt di ripresa sviluppo"). Riprendere da
+**T13** (pagina `/impostazioni` reale), poi T14 (chiusura).
 
 F0-F6 + F-DEBT completate (F6: query NL read-only `POST /ai/query` + pagina `/assistente-ai`,
 ADR-0023, config `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL` — **mai** `GEMINI_API_KEY`, **mai**

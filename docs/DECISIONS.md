@@ -670,6 +670,22 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   4. **Contesto, conteggio esadecimali**: sono **6**, non 5 — `Dashboard.tsx:71` ne ha due sulla
      stessa riga (`stroke="#7c3aed" fill="#ddd6fe"`). Il criterio di accettazione conta i match del
      grep, non le righe.
+- **Rettifica (2026-07-22, esecuzione T8-T12)**: due correzioni emerse durante l'implementazione,
+  nessun cambio di decisione.
+  1. **Conteggio token**: sono **22**, non 21 come detto in una sintesi in prosa durante
+     l'esecuzione — l'elenco enumerato di p.2/della rettifica precedente era già corretto e
+     completo, l'errore era solo nel numero riassuntivo. Nessun token mancante o in più.
+  2. **Valori HSL concreti** (decisione aperta in questa spec, "giudizio a schermo, non su
+     carta"): implementati in T8 come baseline shadcn "slate" per i token base/destructive, palette
+     chart standard shadcn per `--chart-1..5`, e valori custom per `--success`/`--warning` coerenti
+     con gli usi ambra/verde già presenti nel codice (`AiAssistant.tsx` banner troncamento). Valori
+     esatti in `frontend/src/index.css:7-53`. **Approvazione utente 2026-07-22, con riserva
+     esplicita**: *"la palette va bene, ma dovrà essere ritestata quando sarà davvero implementato
+     l'intero stile nero (compreso lo sfondo)"* — approvazione provvisoria, non finale. La
+     ri-validazione a schermo va ripetuta quando `/impostazioni` (T13) è una pagina reale e non più
+     il placeholder di T6a, prima del merge del Blocco A. Non riaprire la scelta della palette
+     stessa (shadcn slate + chart standard) senza un nuovo giro di review — solo i valori concreti
+     restano da confermare a schermo.
 
 ## ADR-0027 — Settings centralizzati (F9): `/settings` unico punto di configurazione UI, tabella key/value, precedenza DB > env > default, whitelist esplicita e blacklist permanente
 
@@ -1063,3 +1079,18 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   fallisce se divergono in modo che crei collisione, e le asserzioni di contenuto intercettano la
   costante lasciata parziale). Costo accettato: l'URL `/backup` cessa di servire la pagina — chi
   lo avesse salvato deve aggiornare il bookmark, scelta dichiarata e a impatto nullo in single-user.
+- **Rettifica (2026-07-22, CHECKPOINT UMANO 3)**: il punto 4 ("il proxy `/backup` torna semplice")
+  era corretto per la collisione di **path esatto** che chiude, ma **incompleto** su un effetto
+  collaterale del proxy Vite: il matching di `server.proxy` è per **prefisso di stringa**
+  (`path.startsWith(chiave)`), quindi la chiave `'/backup'` come stringa semplice intercetta anche
+  `/backup-restore` (che inizia per `/backup`) — una collisione diversa dalla prima, di prefisso e
+  non di path esatto, scoperta solo verificando il dev server durante il checkpoint umano 3, non
+  prevista dal test di regressione del punto 3 (che verifica il backend, non il proxy Vite).
+  Fix (`frontend/vite.config.ts`, commit `0f965b9`): la chiave `'/backup'` torna a un oggetto con
+  `bypass`, ma per un motivo **diverso** da quello di ADR-0022 — non disambigua per header `Accept`
+  su un path condiviso, esclude per **identità esatta** `req.url === '/backup-restore'` da un
+  prefisso che altrimenti la includerebbe. Non è un ritorno al difetto che questo ADR chiude: quello
+  restava una collisione di path esatto lato backend/routing applicativo; questa è una
+  particolarità del solo proxy di sviluppo Vite, non riproducibile in produzione (verificato: il
+  container di produzione, testato al checkpoint umano 2, non usa il proxy Vite). Non rimuovere
+  questo `bypass` pensando che la rettifica del punto 4 lo renda superfluo.
