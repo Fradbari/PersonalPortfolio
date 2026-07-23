@@ -42,14 +42,16 @@ F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico 
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64 ·
 **F8-F14 roadmap in 3 blocchi**.
 
-**Fase corrente: BLOCCO A — F8 dark mode + F9 settings, in esecuzione.** Branch
-`f8-f9-theme-settings` aperto (2026-07-21); spec di dettaglio
+**Fase corrente: BLOCCO A — F8 dark mode + F9 settings, completato (T0-T14), in attesa di
+merge.** Branch `f8-f9-theme-settings` (aperto 2026-07-21); spec di dettaglio
 [docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md](docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md)
 e piano [docs/superpowers/plans/f8-f9-implementation-plan.md](docs/superpowers/plans/f8-f9-implementation-plan.md)
-approvati (task T0-T14). **Stato al 2026-07-22: T0-T12 completati e committati, 3/3 checkpoint
-umani superati** (dettaglio task-per-task in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
-righe F8/F9 della tabella "Stato avanzamento" e "Prompt di ripresa sviluppo"). Riprendere da
-**T13** (pagina `/impostazioni` reale), poi T14 (chiusura).
+eseguiti per intero. **Stato al 2026-07-23: T0-T14 completati e committati, 3/3 checkpoint umani
+superati**, `alembic heads` = 1 riga (`0003`), suite 144 test verdi, `version`/`phase` → 9
+(dettaglio task-per-task in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), righe F8/F9 della
+tabella "Stato avanzamento"). Prossimo passo: review finale whole-branch, poi merge su `master`
+(superpowers:finishing-a-development-branch) — quindi via libera al **Blocco B**
+(`f11-f12-f13-transactions`).
 
 F0-F6 + F-DEBT completate (F6: query NL read-only `POST /ai/query` + pagina `/assistente-ai`,
 ADR-0023, config `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL` — **mai** `GEMINI_API_KEY`, **mai**
