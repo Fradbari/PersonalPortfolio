@@ -49,9 +49,15 @@ trovati e corretti) mergiato con merge commit `bcbdb18` il 2026-07-23. Audit vis
 `frontend/src`, 8 pagine verificate in light+dark via browser reale, zero errori console; **1
 difetto reale trovato e corretto**: `--warning-foreground` non aveva variante `.dark` (contrasto
 1.22:1, banner di troncamento AI illeggibile in dark — unico uso, `AiAssistant.tsx:61`), fissato
-a `38 92% 85%` e verificato via calcolo WCAG + browser reale sul container rigenerato. `alembic
-heads` = 1 riga (`0003`), suite **148 test verdi**, `version`/`phase` → 9. **Blocco A chiuso.**
-Via libera al **Blocco B** (`f11-f12-f13-transactions`).
+a `38 92% 85%` e verificato via calcolo WCAG + browser reale sul container rigenerato.
+**Fix successivo** (branch `fix-input-dark-contrast`, commit `37f93ac`): utente ha segnalato con
+screenshot reale input illeggibili in dark su `/impostazioni` (sfondo bianco default browser,
+mai legato al tema, su 7 siti `<input>` del frontend). Fix in `frontend/src/index.css @layer
+base`: regola unica `input:not(checkbox/radio/file), textarea, select -> bg-background
+text-foreground`, invece di patchare i 7 siti uno per uno. Verificato via browser reale
+(dark: `bg=rgb(2,8,23)` `color=rgb(248,250,252)`; light: invariato). `alembic heads` = 1 riga
+(`0003`), suite **148 test verdi**, `version`/`phase` → 9. **Blocco A chiuso, mergiato e
+pushato su `origin/master`** (`37f93ac`). Via libera al **Blocco B** (`f11-f12-f13-transactions`).
 
 F0-F6 + F-DEBT completate (F6: query NL read-only `POST /ai/query` + pagina `/assistente-ai`,
 ADR-0023, config `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL` — **mai** `GEMINI_API_KEY`, **mai**
