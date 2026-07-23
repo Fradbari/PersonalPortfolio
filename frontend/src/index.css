@@ -59,4 +59,9 @@
   body {
     @apply bg-background text-foreground;
   }
+  input:not([type='checkbox']):not([type='radio']):not([type='file']),
+  textarea,
+  select {
+    @apply bg-background text-foreground;
+  }
 }
