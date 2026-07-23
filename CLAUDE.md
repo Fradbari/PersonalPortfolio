@@ -42,16 +42,16 @@ F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico 
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64 ·
 **F8-F14 roadmap in 3 blocchi**.
 
-**Fase corrente: BLOCCO A — F8 dark mode + F9 settings, completato (T0-T14), in attesa di
-merge.** Branch `f8-f9-theme-settings` (aperto 2026-07-21); spec di dettaglio
-[docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md](docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md)
-e piano [docs/superpowers/plans/f8-f9-implementation-plan.md](docs/superpowers/plans/f8-f9-implementation-plan.md)
-eseguiti per intero. **Stato al 2026-07-23: T0-T14 completati e committati, 3/3 checkpoint umani
-superati**, `alembic heads` = 1 riga (`0003`), suite 144 test verdi, `version`/`phase` → 9
-(dettaglio task-per-task in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), righe F8/F9 della
-tabella "Stato avanzamento"). Prossimo passo: review finale whole-branch, poi merge su `master`
-(superpowers:finishing-a-development-branch) — quindi via libera al **Blocco B**
-(`f11-f12-f13-transactions`).
+**Fase corrente: BLOCCO A — F8 dark mode + F9 settings, mergiato su `master`.** Branch
+`f8-f9-theme-settings` (T0-T14, 3/3 checkpoint umani, review finale whole-branch con 2 Important
+trovati e corretti) mergiato con merge commit `bcbdb18` il 2026-07-23. Audit visivo post-merge
+(branch `f8-f9-post-merge-audit`, commit `2b290ef`): grep colori hardcoded pulito su tutto
+`frontend/src`, 8 pagine verificate in light+dark via browser reale, zero errori console; **1
+difetto reale trovato e corretto**: `--warning-foreground` non aveva variante `.dark` (contrasto
+1.22:1, banner di troncamento AI illeggibile in dark — unico uso, `AiAssistant.tsx:61`), fissato
+a `38 92% 85%` e verificato via calcolo WCAG + browser reale sul container rigenerato. `alembic
+heads` = 1 riga (`0003`), suite **148 test verdi**, `version`/`phase` → 9. **Blocco A chiuso.**
+Via libera al **Blocco B** (`f11-f12-f13-transactions`).
 
 F0-F6 + F-DEBT completate (F6: query NL read-only `POST /ai/query` + pagina `/assistente-ai`,
 ADR-0023, config `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL` — **mai** `GEMINI_API_KEY`, **mai**
