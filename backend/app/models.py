@@ -1,8 +1,7 @@
 """Schema canonico base (Fase 0) + estensioni per fase (ADR-0003).
 
-NOTA: `settings` (F4) sarà aggiunta in una fase successiva tramite Alembic
-revision dedicata, non qui. `category_pending` e `transactions.category_raw`
-sono state aggiunte in F1 (revision 0002, ADR-0013).
+NOTA: `category_pending` e `transactions.category_raw` sono state aggiunte in
+F1 (revision 0002, ADR-0013).
 """
 from datetime import datetime
 
@@ -104,3 +103,18 @@ class Transaction(Base):
     hash_dedup: Mapped[str] = mapped_column(String, unique=True, nullable=False)
 
     batch: Mapped["ImportBatch"] = relationship(back_populates="transactions")
+
+
+class Settings(Base):
+    """Impostazioni utente key/value (F9, ADR-0027).
+
+    Key/value e non colonne tipizzate: ogni impostazione futura è un INSERT,
+    non una migrazione (ADR-0027 p.2). Il tipo si applica in lettura, lato
+    applicazione. Whitelist/blacklist e precedenza DB > env > default sono
+    responsabilità del service layer (T2/T3), non dello schema.
+    """
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

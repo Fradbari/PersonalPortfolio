@@ -4,7 +4,30 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>Personal Portfolio</title>
+    <script>
+      // Anti-FOUC (F8): applica la classe "dark" PRIMA che React monti, così il
+      // primo paint è già nel tema corretto e non lampeggia bianco/nero a ogni
+      // reload. Stessa chiave localStorage di THEME_STORAGE_KEY in
+      // src/components/theme-provider.tsx — se cambia lì, va cambiata anche qui.
+      // Deve restare un blocco minimo sincrono, senza dipendenze esterne.
+      ;(function () {
+        try {
+          var STORAGE_KEY = 'personal-portfolio:theme'
+          var stored = window.localStorage.getItem(STORAGE_KEY)
+          var theme = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+          var isDark =
+            theme === 'dark' ||
+            (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (isDark) {
+            document.documentElement.classList.add('dark')
+          }
+        } catch (e) {
+          // localStorage/matchMedia indisponibili: resta il tema chiaro di default,
+          // nessun errore deve impedire il caricamento della pagina.
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

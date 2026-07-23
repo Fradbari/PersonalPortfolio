@@ -32,7 +32,7 @@ export function CategoriesPending() {
       <h2 className="mb-4 text-lg font-semibold">Categorie pending</h2>
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b text-left text-gray-500">
+          <tr className="border-b text-left text-muted-foreground">
             <th className="py-2">Fonte</th>
             <th>Nome sorgente</th>
             <th>Assegna a categoria</th>
@@ -65,9 +65,9 @@ export function CategoriesPending() {
           ))}
         </tbody>
       </table>
-      {data?.length === 0 ? <p className="text-gray-500">Nessuna categoria in coda.</p> : null}
+      {data?.length === 0 ? <p className="text-muted-foreground">Nessuna categoria in coda.</p> : null}
       {resolveMutation.error ? (
-        <p className="mt-3 text-red-600">{(resolveMutation.error as Error).message}</p>
+        <p className="mt-3 text-destructive">{(resolveMutation.error as Error).message}</p>
       ) : null}
     </div>
   )

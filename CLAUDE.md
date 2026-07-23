@@ -33,13 +33,25 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
    diverso dalla regola 1: quella difende il repository, questa la **superficie HTTP** — un secret
    può essere fuori dai commit e uscire lo stesso da una risposta JSON. `GOOGLE_API_KEY` **non
    esiste** in questo progetto e non va introdotta.
+8. **Nessuna route SPA condivide un path esatto con un endpoint API** (ADR-0033): pagine in
+   italiano (`/transazioni`, `/impostazioni`, `/backup-restore`…), endpoint in inglese. Verificato
+   da test di regressione su `SPA_ROUTES` in `main.py`, non dalla disciplina.
 
 ## Mappa fasi (dettaglio + stato vivo in docs/ARCHITECTURE.md)
 F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico (dry-run, dal 2026) ·
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64 ·
 **F8-F14 roadmap in 3 blocchi**.
 
-**Fase corrente: BLOCCO A — F8 dark mode + F9 settings.** Nessun codice F8-F14 ancora scritto.
+**Fase corrente: BLOCCO A — F8 dark mode + F9 settings, completato (T0-T14), in attesa di
+merge.** Branch `f8-f9-theme-settings` (aperto 2026-07-21); spec di dettaglio
+[docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md](docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md)
+e piano [docs/superpowers/plans/f8-f9-implementation-plan.md](docs/superpowers/plans/f8-f9-implementation-plan.md)
+eseguiti per intero. **Stato al 2026-07-23: T0-T14 completati e committati, 3/3 checkpoint umani
+superati**, `alembic heads` = 1 riga (`0003`), suite 144 test verdi, `version`/`phase` → 9
+(dettaglio task-per-task in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), righe F8/F9 della
+tabella "Stato avanzamento"). Prossimo passo: review finale whole-branch, poi merge su `master`
+(superpowers:finishing-a-development-branch) — quindi via libera al **Blocco B**
+(`f11-f12-f13-transactions`).
 
 F0-F6 + F-DEBT completate (F6: query NL read-only `POST /ai/query` + pagina `/assistente-ai`,
 ADR-0023, config `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL` — **mai** `GEMINI_API_KEY`, **mai**
@@ -52,9 +64,11 @@ all'arrivo del Pi, con i punti aperti P1-P4 registrati in ARCHITECTURE.md.
 
 **Roadmap F8-F14** (pianificata 2026-07-21, spec
 [docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md](docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md),
-ADR-0026 → ADR-0032):
+ADR-0026 → ADR-0033):
 - **Blocco A** `f8-f9-theme-settings` — F8 dark mode (token semantici CSS, Tailwind v3 `class`,
-  chartConfig condiviso) · F9 pagina `/settings` (tabella key/value, whitelist/blacklist).
+  chartConfig condiviso) · F9 endpoint `/settings` + pagina `/impostazioni` (tabella key/value,
+  whitelist/blacklist) · ADR-0033 routing (pagina Backup → `/backup-restore`). Spec e piano di
+  dettaglio approvati 2026-07-21.
 - **Blocco B** `f11-f12-f13-transactions` — F11 `POST /transactions` manuale · F12 filtri avanzati e
   FTS5 · F13 dashboard aggiuntive. **Gate bloccante M12.0**: build arm64 + `SELECT fts5_version()`
   prima del merge.

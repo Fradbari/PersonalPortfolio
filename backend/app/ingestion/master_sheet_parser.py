@@ -23,7 +23,7 @@ Tre tipi di riga distinti dal valore posizionale della colonna `Data:` (per riga
 Tracciamento mese corrente (per datare le righe "Entrate" e associare le righe "Totale %"
 al mese giusto): aggiornato da ogni riga-data reale incontrata (year/month della data
 stessa) oppure da un marcatore di mese italiano letterale (year sempre
-`settings.import_min_year` per questo tab). Una riga "Entrate" incontrata prima di
+`sheet_year` per questo tab). Una riga "Entrate" incontrata prima di
 qualunque riga-data/marcatore (mese sconosciuto) viene scartata con motivo esplicito nel
 report — non blocca il resto del parsing (ADR-0015 punto 5).
 
@@ -37,8 +37,6 @@ from datetime import datetime
 from typing import Any, BinaryIO
 
 import pandas as pd
-
-from app.config import settings
 
 # Nomi colonna attesi in riga 1 (header reale, ADR-0015).
 COL_DATE = "Data:"
@@ -107,8 +105,8 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
-def parse_master_sheet_xlsx(file: str | BinaryIO, sheet_name: str | None = None) -> dict:
-    """Legge il tab `sheet_name` (default `str(settings.import_min_year)`, ADR-0012) del
+def parse_master_sheet_xlsx(file: str | BinaryIO, sheet_name: str, sheet_year: int) -> dict:
+    """Legge il tab `sheet_name` (parametro obbligatorio `sheet_year: int`, ADR-0012) del
     master sheet storico e produce righe pronte per la stessa pipeline hash/reconciliation
     di F1 (`app.ingestion.reconciliation`).
 
@@ -123,7 +121,7 @@ def parse_master_sheet_xlsx(file: str | BinaryIO, sheet_name: str | None = None)
       totale_cumulato, accumulo_totale, trattenuta}`, una per ogni riga `Totale %`
       incontrata, associata al mese tracciato in quel punto della scansione.
     """
-    sheet = sheet_name or str(settings.import_min_year)
+    sheet = sheet_name
     df = pd.read_excel(file, sheet_name=sheet, engine="openpyxl")
 
     columns = list(df.columns)
@@ -148,7 +146,7 @@ def parse_master_sheet_xlsx(file: str | BinaryIO, sheet_name: str | None = None)
             continue
 
         if isinstance(marker, str) and marker in ITALIAN_MONTHS:
-            current_year = settings.import_min_year
+            current_year = sheet_year
             current_month = ITALIAN_MONTHS[marker]
             skipped.append({"row_number": row_number, "reason": f"marcatore mese ({marker})"})
             continue

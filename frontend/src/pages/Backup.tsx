@@ -39,7 +39,7 @@ export function Backup() {
         Backup ora
       </Button>
       {backupNowMutation.data ? (
-        <pre className="mt-3 rounded bg-gray-100 p-3 text-xs">{JSON.stringify(backupNowMutation.data, null, 2)}</pre>
+        <pre className="mt-3 rounded bg-muted p-3 text-xs">{JSON.stringify(backupNowMutation.data, null, 2)}</pre>
       ) : null}
 
       <h3 className="mb-2 mt-6 font-semibold">Backup disponibili</h3>
@@ -78,9 +78,9 @@ export function Backup() {
         })}
       </ul>
       {restoreMutation.data ? (
-        <p className="mt-3 text-green-700">Restore completato: {JSON.stringify(restoreMutation.data)}</p>
+        <p className="mt-3 text-success">Restore completato: {JSON.stringify(restoreMutation.data)}</p>
       ) : null}
-      {restoreMutation.error ? <p className="mt-3 text-red-600">{(restoreMutation.error as Error).message}</p> : null}
+      {restoreMutation.error ? <p className="mt-3 text-destructive">{(restoreMutation.error as Error).message}</p> : null}
     </div>
   )
 }

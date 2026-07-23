@@ -127,7 +127,7 @@ export function Transactions() {
 
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b text-left text-gray-500">
+          <tr className="border-b text-left text-muted-foreground">
             <th className="py-2">Data</th>
             <th>Importo</th>
             <th>Tipo</th>
@@ -142,7 +142,7 @@ export function Transactions() {
           {data?.items.map((t) => (
             <tr key={t.id} className="border-b">
               <td className="py-2">{t.date.slice(0, 10)}</td>
-              <td className={t.type === 'expense' ? 'text-red-600' : 'text-green-600'}>
+              <td className={t.type === 'expense' ? 'text-destructive' : 'text-success'}>
                 {t.amount.toFixed(2)} {t.currency}
               </td>
               <td>{t.type}</td>
@@ -197,7 +197,7 @@ export function Transactions() {
                       Annulla
                     </Button>
                     {updateMutation.error ? (
-                      <p className="mt-1 text-xs text-red-600">{(updateMutation.error as Error).message}</p>
+                      <p className="mt-1 text-xs text-destructive">{(updateMutation.error as Error).message}</p>
                     ) : null}
                   </>
                 ) : (
@@ -237,7 +237,7 @@ export function Transactions() {
         </tbody>
       </table>
       {deleteMutation.error ? (
-        <p className="mt-3 text-red-600">{(deleteMutation.error as Error).message}</p>
+        <p className="mt-3 text-destructive">{(deleteMutation.error as Error).message}</p>
       ) : null}
 
       <div className="mt-4 flex items-center gap-3 text-sm">

@@ -25,6 +25,7 @@ from app.ingestion.master_sheet_parser import parse_master_sheet_xlsx
 from app.ingestion.my_finance_parser import parse_my_finance_xlsx
 from app.ingestion.reconciliation import compute_hash_dedup, get_or_create_account, resolve_category
 from app.models import CategoryPending, ImportBatch, Transaction
+from app.services.settings import get_effective
 
 logger = logging.getLogger(__name__)
 
@@ -254,8 +255,9 @@ def import_historical_dry_run(file: UploadFile):
         raise HTTPException(status_code=400, detail="Atteso un file .xlsx (master sheet storico).")
 
     content = file.file.read()
+    min_year, _ = get_effective("import_min_year")
     try:
-        parsed = parse_master_sheet_xlsx(io.BytesIO(content))
+        parsed = parse_master_sheet_xlsx(io.BytesIO(content), sheet_name=str(min_year), sheet_year=min_year)
     except Exception as exc:  # file/tab non nel formato master sheet atteso
         raise HTTPException(status_code=400, detail=f"Impossibile leggere il file: {exc}") from exc
 
@@ -289,8 +291,9 @@ def import_historical_commit(file: UploadFile, session: Session = Depends(get_se
         raise HTTPException(status_code=400, detail="Atteso un file .xlsx (master sheet storico).")
 
     content = file.file.read()
+    min_year, _ = get_effective("import_min_year", session=session)
     try:
-        parsed = parse_master_sheet_xlsx(io.BytesIO(content))
+        parsed = parse_master_sheet_xlsx(io.BytesIO(content), sheet_name=str(min_year), sheet_year=min_year)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Impossibile leggere il file: {exc}") from exc
 

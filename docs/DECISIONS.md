@@ -651,6 +651,41 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   v3 a mano finché non si deciderà la migrazione. Vincolo permanente introdotto: **ogni grafico
   nuovo passa dal `chartConfig` condiviso** — un `stroke="#..."` in una PR è un difetto, non una
   scelta.
+- **Rettifica (2026-07-21, spec di dettaglio Blocco A** —
+  `docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md`**)**: quattro correzioni di dettaglio
+  implementativo emerse dalla verifica sul codice, nessun cambio di decisione.
+  1. **p.2, elenco token incompleto**: si aggiungono `--primary-foreground`,
+     `--destructive-foreground`, `--success-foreground`, `--warning`, `--warning-foreground`
+     (le coppie foreground servono a `bg-primary text-white` e simili, che in dark si rompono;
+     warning serve al banner di troncamento di `AiAssistant.tsx` oggi in amber hardcoded).
+  2. **p.6, meccanismo dei colori chart**: `chart-config.ts` esporta **stringhe**
+     `hsl(var(--chart-N))` passate tal quali a Recharts — il browser le risolve al toggle del tema.
+     **Non** si usa `getComputedStyle`: si valuta al mount e lascerebbe i grafici col colore vecchio
+     dopo il toggle finché non rimontano. Il tooltip (unico nodo HTML, non SVG) usa `contentStyle`
+     con le stesse stringhe.
+  3. **M8.4, componenti shadcn**: `ChartContainer`/`ChartTooltip` **non si portano**. Il loro
+     compito (iniettare CSS var per serie, avvolgere `ResponsiveContainer`) è già coperto dalle
+     stringhe del punto 2 e da `ResponsiveContainer` già in uso; il bisogno residuo è ~6 righe di
+     `contentStyle` in `chart-config.ts`.
+  4. **Contesto, conteggio esadecimali**: sono **6**, non 5 — `Dashboard.tsx:71` ne ha due sulla
+     stessa riga (`stroke="#7c3aed" fill="#ddd6fe"`). Il criterio di accettazione conta i match del
+     grep, non le righe.
+- **Rettifica (2026-07-22, esecuzione T8-T12)**: due correzioni emerse durante l'implementazione,
+  nessun cambio di decisione.
+  1. **Conteggio token**: sono **22**, non 21 come detto in una sintesi in prosa durante
+     l'esecuzione — l'elenco enumerato di p.2/della rettifica precedente era già corretto e
+     completo, l'errore era solo nel numero riassuntivo. Nessun token mancante o in più.
+  2. **Valori HSL concreti** (decisione aperta in questa spec, "giudizio a schermo, non su
+     carta"): implementati in T8 come baseline shadcn "slate" per i token base/destructive, palette
+     chart standard shadcn per `--chart-1..5`, e valori custom per `--success`/`--warning` coerenti
+     con gli usi ambra/verde già presenti nel codice (`AiAssistant.tsx` banner troncamento). Valori
+     esatti in `frontend/src/index.css:7-53`. **Approvazione utente 2026-07-22, con riserva
+     esplicita**: *"la palette va bene, ma dovrà essere ritestata quando sarà davvero implementato
+     l'intero stile nero (compreso lo sfondo)"* — approvazione provvisoria, non finale. La
+     ri-validazione a schermo va ripetuta quando `/impostazioni` (T13) è una pagina reale e non più
+     il placeholder di T6a, prima del merge del Blocco A. Non riaprire la scelta della palette
+     stessa (shadcn slate + chart standard) senza un nuovo giro di review — solo i valori concreti
+     restano da confermare a schermo.
 
 ## ADR-0027 — Settings centralizzati (F9): `/settings` unico punto di configurazione UI, tabella key/value, precedenza DB > env > default, whitelist esplicita e blacklist permanente
 
@@ -717,6 +752,20 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   che prima non esisteva, e che ADR-0031 specializza per il caso Drive. Rischio residuo accettato:
   la precedenza DB > env può disorientare chi cambia una env var e non vede effetti — mitigato
   mostrando in `/settings` il valore effettivo e la sua provenienza.
+- **Rettifica (2026-07-21, spec di dettaglio Blocco A** —
+  `docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md`**)**: due correzioni di dettaglio
+  implementativo, nessun cambio di decisione.
+  1. **M9.5, path della pagina**: la pagina React è **`/impostazioni`**, l'endpoint resta
+     `/settings`. Motivo: ADR-0033 — un path esatto condiviso tra endpoint API e route SPA produce
+     il difetto già in produzione su `/backup` (hard-refresh → JSON grezzo). Il vincolo di prodotto
+     del punto 1 ("unico punto di configurazione esposto all'utente") resta identico: cambia solo
+     l'URL della pagina.
+  2. **p.8, test di blacklist**: la formulazione "fallisce se una chiave blacklistata compare in
+     qualunque punto della risposta" si contraddice col punto 6, che **impone** i nomi dei secret
+     dentro `secrets_status`. Il test si riformula su tre asserzioni: (a) nessun **valore** di
+     secret nella risposta (sentinelle iniettate in config); (b) nessuna chiave blacklistata
+     nell'array `settings[]`; (c) `PUT` su chiave blacklistata e su chiave inesistente → 400 con
+     **messaggio identico**, altrimenti la differenza permette di enumerare la blacklist.
 
 ## ADR-0028 — Inserimento manuale (F11): `POST /transactions`, `source='manual'`, duplicato consapevole con ordinale `#n` (specializza ADR-0005/ADR-0013)
 
@@ -987,3 +1036,61 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   configurabile senza rilascio. Rischio residuo accettato: una conversazione lunga può far uscire
   dalla rete locale più dati di quanti l'utente ricordi di aver inviato; mitigato dal cap, dalla
   traccia dei tool sempre visibile (ADR-0023 p.11) e dal pulsante di azzeramento.
+
+## ADR-0033 — Routing (Blocco A): nessuna route SPA condivide un path esatto con un endpoint API (supera ADR-0022)
+
+- Status: Accepted — Fase: Blocco A (F8/F9) — Data: 2026-07-21
+- Contesto: durante la pianificazione di dettaglio del Blocco A è stato verificato **in produzione**
+  (container attivo) un difetto di routing:
+
+  ```
+  GET /backup      (Accept: text/html) -> 200 application/json   <- SPA rotta
+  GET /transazioni (Accept: text/html) -> 200 text/html          <- ok
+  ```
+
+  Causa: l'endpoint API `GET /backup` e la pagina SPA `/backup` condividono il **path esatto**;
+  Starlette fa match per ordine di registrazione e il router API precede il catch-all SPA, quindi
+  un hard-refresh del browser su quella pagina mostra JSON grezzo invece dell'app. DEBT-04/ADR-0022
+  avevano corretto il sintomo **solo nel dev server Vite** (bypass su header `Accept` nel proxy):
+  la produzione è rimasta rotta da F5 in poi senza che nessuno lo notasse — il difetto è invisibile
+  navigando via sidebar e appare solo al reload diretto. La pagina `/settings` prevista da ADR-0027
+  sarebbe nata con lo stesso identico difetto.
+- Decisione:
+  1. **Regola permanente**: per ogni path servito dall'app, o è un endpoint API o è una route SPA —
+     **mai entrambi**. Convenzione che la rende naturale: pagine in **italiano**
+     (`/transazioni`, `/conti`, `/categorie-pending`, `/assistente-ai`, `/impostazioni`,
+     `/backup-restore`), endpoint in **inglese**. Le due collisioni storiche (`/import`, `/backup`)
+     erano parole identiche nelle due lingue.
+  2. **Applicazione nel Blocco A**: la pagina settings nasce su `/impostazioni` (endpoint
+     `/settings`, rettifica ADR-0027 M9.5); la pagina Backup si sposta su `/backup-restore`
+     (label sidebar invariata, "Backup"). **Nessun redirect** da `/backup`: app single-user su rete
+     locale, nessun bookmark condiviso da preservare (ADR-0009).
+  3. **Enforcement meccanico, non disciplinare**: costante `SPA_ROUTES` (`frozenset`) in
+     `backend/app/main.py` a livello di modulo, commento incrociato con `frontend/src/App.tsx`;
+     blocco SPA estratto nella funzione `mount_spa(app, dist_dir)` così da essere testabile su
+     app di prova. Due test di regressione: (a) invariante — intersezione tra `SPA_ROUTES` e i
+     path esatti degli endpoint registrati **vuota**, più contenuto esatto della costante;
+     (b) comportamento HTTP — `mount_spa` su directory temporanea, `GET /settings`→JSON,
+     `GET /impostazioni`→html, `GET /backup`→JSON, `GET /backup-restore`→html.
+  4. **ADR-0022 superato**: il bypass `Accept` nel proxy Vite viene rimosso — la collisione che
+     aggirava non esiste più. Il proxy `/backup` torna semplice.
+- Conseguenze: la classe di difetti "hard-refresh mostra JSON" è chiusa da un test, non da una
+  convenzione. Ogni route SPA futura va aggiunta sia in `App.tsx` sia in `SPA_ROUTES` (il test
+  fallisce se divergono in modo che crei collisione, e le asserzioni di contenuto intercettano la
+  costante lasciata parziale). Costo accettato: l'URL `/backup` cessa di servire la pagina — chi
+  lo avesse salvato deve aggiornare il bookmark, scelta dichiarata e a impatto nullo in single-user.
+- **Rettifica (2026-07-22, CHECKPOINT UMANO 3)**: il punto 4 ("il proxy `/backup` torna semplice")
+  era corretto per la collisione di **path esatto** che chiude, ma **incompleto** su un effetto
+  collaterale del proxy Vite: il matching di `server.proxy` è per **prefisso di stringa**
+  (`path.startsWith(chiave)`), quindi la chiave `'/backup'` come stringa semplice intercetta anche
+  `/backup-restore` (che inizia per `/backup`) — una collisione diversa dalla prima, di prefisso e
+  non di path esatto, scoperta solo verificando il dev server durante il checkpoint umano 3, non
+  prevista dal test di regressione del punto 3 (che verifica il backend, non il proxy Vite).
+  Fix (`frontend/vite.config.ts`, commit `0f965b9`): la chiave `'/backup'` torna a un oggetto con
+  `bypass`, ma per un motivo **diverso** da quello di ADR-0022 — non disambigua per header `Accept`
+  su un path condiviso, esclude per **identità esatta** `req.url === '/backup-restore'` da un
+  prefisso che altrimenti la includerebbe. Non è un ritorno al difetto che questo ADR chiude: quello
+  restava una collisione di path esatto lato backend/routing applicativo; questa è una
+  particolarità del solo proxy di sviluppo Vite, non riproducibile in produzione (verificato: il
+  container di produzione, testato al checkpoint umano 2, non usa il proxy Vite). Non rimuovere
+  questo `bypass` pensando che la rettifica del punto 4 lo renda superfluo.

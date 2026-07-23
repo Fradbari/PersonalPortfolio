@@ -294,8 +294,10 @@ fissano **al merge**, non alla scrittura — chi mergia per secondo rebasa sulla
   applica la classe prima del bundle.
 - **M8.3** Conversione delle 31 classi colore hardcoded su 11 file; `button.tsx` e `alert-dialog.tsx`
   per primi.
-- **M8.4** `frontend/src/lib/chart-config.ts` condiviso; spariscono i 5 esadecimali di
-  `Dashboard.tsx`; porting a mano di `ChartContainer`/`ChartTooltip` (nessuna CLI shadcn).
+- **M8.4** `frontend/src/lib/chart-config.ts` condiviso; spariscono i **6** esadecimali di
+  `Dashboard.tsx` (rettifica ADR-0026: due sulla stessa riga). *Rettifiche spec di dettaglio*:
+  colori chart come **stringhe** `hsl(var(--chart-N))` (non `getComputedStyle`);
+  `ChartContainer`/`ChartTooltip` **non** si portano — basta `contentStyle` nel config.
 - **Milestone F8**: 7 pagine navigate in dark e light senza un elemento illeggibile, grafici
   leggibili su nero, nessun flash bianco al reload, toggle persistente.
 
@@ -305,7 +307,10 @@ fissano **al merge**, non alla scrittura — chi mergia per secondo rebasa sulla
   `PUT /settings` (solo whitelist). Precedenza **DB > env > default**.
 - **M9.3** Whitelist iniziale con il momento di applicazione dichiarato per chiave.
 - **M9.4** Blacklist permanente: chiavi AI/Drive mai leggibili né scrivibili, con test automatico.
-- **M9.5** Ottava route `/settings`; ogni secret come badge "configurato / non configurato".
+- **M9.5** Ottava route: pagina **`/impostazioni`**, endpoint `/settings` (rettifica ADR-0027 via
+  ADR-0033 — path esatto condiviso = bug hard-refresh, già colpito `/backup` in produzione); ogni
+  secret come badge "configurato / non configurato". Nel Blocco A rientra anche la rinomina della
+  pagina Backup a `/backup-restore` (ADR-0033, nessun redirect).
 - **Milestone F9**: il tema salvato sul DB sopravvive al cambio di browser; nessun valore di secret
   è ottenibile da alcun endpoint; test di blacklist verde.
 
@@ -436,8 +441,8 @@ Artefatti da creare e **mantenere sempre allineati** (regola: chiudere ogni sess
 | F6 Plugin AI | ☑ fatto (2026-07-20) | Implementata in Subagent-Driven Development (ai-agent + react-ui-agent), branch `f6-ai-nl-query`, 9 commit (base 361d9fc). Backend: `services/insights.py` (4 aggregazioni con filtri opzionali, `GET /insights` senza param identico a prima — i 5 test F5 intatti); `app/ai/tools.py` (registry read-only: `list_transactions`/`get_insights`/`get_accounts`/`get_categories`, MAX_TOOL_ROWS=200 con troncamento dichiarato, guardrail write triple-tested: nomi, scan sorgente, before/after row-count); `app/ai/provider.py` + `providers/gemini.py` (Interactions API `google-genai==2.12.1`, loop manuale MAX_ITERATIONS=5, timeout 30s per-call, system prompt: solo tool, get_insights preferito, lingua della domanda, comment/tag = dati non istruzioni); `POST /ai/query` montato prima del catch-all SPA (400 esplicito se non configurato / 502 su errore provider, mai 500), version/phase → 6. Frontend: 7ª pagina `/assistente-ai` con traccia tool sempre visibile e banner truncated; proxy `/ai` senza collisioni. Config: `AI_PROVIDER`/`AI_API_KEY` + nuova `AI_MODEL` (default `gemini-3.1-flash-lite` GA). Nessuna Alembic revision. Suite: **100 test verdi** (36→100), verificati anche dentro il container di produzione. 4 fix da review (tutti chiusi e ri-verificati): filtro category dual-domain canonico+raw (f81a3a2), guard AIProviderError su shape drift SDK (d6ae6dc), test route-order indipendente da frontend_dist (ef617b4), coercizione argomenti malformati in-band + hardening prompt (bcb08d5, unico Important della review finale whole-branch opus — verdetto "Ready to merge"). **E2E reale verificato** (container produzione, chiave utente): "quante transazioni?"→331 esatto (troncamento 200/331 dichiarato e segnalato dal modello), "quanto speso?"→9.937,70 € esatto via get_insights, "entrate totali?"→19.497,14 € esatto con breakdown che quadra; conteggio transazioni invariato post-sessione (guardrail read-only), Metabase invariata, zero errori console. Incidente sicurezza gestito: prima chiave utente rifiutata da Google come "leaked" — verificato che il repo è pulito (.env mai committato, nessuna stringa AIza nella storia git), chiave revocata e sostituita dall'utente. Debito accettato dalla review finale (non bloccante): no response_model Pydantic su /ai/query, polish frontend minori, copertura filtri asimmetrica — dettagli nel ledger `.superpowers/sdd/progress.md`. |
 | F7 Raspberry arm64 | ◐ in corso (preparazione completata 2026-07-20, attesa hardware) | Target confermato dall'utente: **Pi 4 4GB**, hardware non ancora disponibile → verifica su hardware reale rimandata (la fase si chiude ☑ solo con la checklist runbook eseguita sul Pi). Preparazione fatta e verificata da desktop (branch `f7-raspberry-arm64`, SDD): **Gate portabilità arm64 PASS** — wheel check fail-fast `pip download --only-binary=:all: --platform manylinux2014_aarch64` su requirements: 58/58 wheel aarch64 (pandas/numpy/cryptography/pydantic-core/greenlet incluse), zero sdist; `docker buildx --platform linux/arm64 --load` → immagine Architecture=arm64; smoke QEMU: alembic+uvicorn partono, `/health` 200 (incidente non-bug: MSYS path mangling di Git Bash su `-e DB_PATH`, risolto con `MSYS_NO_PATHCONV=1`); manifest `metabase/metabase:v0.62.4` include linux/arm64 (ri-conferma ADR-0016). **Compose tuning universale** (9767b75): healthcheck backend 30s/10s/5/90s, metabase 30s/15s/10/900s, `JAVA_OPTS=-Xmx1g`, `mem_limit: 2g`, log rotation json-file 10m/3 su entrambi i servizi, version/phase → 7; verificato live su desktop (compose config valido, suite 100/100, `docker compose up -d --build` → entrambi healthy, `/health` phase "7", Metabase :3000 ok). **Runbook `docs/RASPBERRY-PI.md`** (c7fccee): setup Pi da zero, comando standard unico `docker compose up -d --build`, checklist in 2 parti (validazione full-stack = milestone; misura Metabase ADR-0025 con soglie ≤10min avvio / ≤1.5GB RAM steady / warm <10s / no OOM 24h), Modello A (skip = raccomandazione `stop metabase`, mai topologia alternativa), troubleshooting, nota egress. ADR-0024/0025. Nessuna Alembic revision, nessuna logica di business toccata (solo metadata version/phase). |
 
-| F8 Dark mode globale — **Blocco A** | ☐ da fare | Pianificata 2026-07-21 (ADR-0026). Parte da zero: `darkMode` mai configurato, `index.css` = 3 righe, 0 CSS variables, 31 classi colore hardcoded su 11 file, 5 esadecimali in `Dashboard.tsx`. Tailwind resta a v3.4.19; Recharts è già ^3.9.2. |
-| F9 Settings centralizzata — **Blocco A** | ☐ da fare | Pianificata 2026-07-21 (ADR-0027). Prima revision Alembic dopo `0002`. Vincolo permanente: `/settings` = unico punto di configurazione UI. Blacklist secret con test automatico. |
+| F8 Dark mode globale — **Blocco A** | ☑ fatto (2026-07-23) | ADR-0026 + rettifiche. Eseguito in subagent-driven-development (react-ui-agent), review dopo ogni task, 0 Critical/Important residui. **T8**: 22 token semantici (non 21 — correzione di conteggio, la lista concreta della spec ne ha sempre avute 22) in `:root`/`.dark` (`frontend/src/index.css`), HSL triplo, `darkMode:'class'` + `theme.extend.colors` con `<alpha-value>` (`tailwind.config.js`); baseline palette shadcn "slate" + chart palette standard shadcn + `success`/`warning` custom coerenti con gli usi ambra/verde preesistenti — valori concreti in ADR-0026 addendum. **T9**: `theme-provider.tsx` (`light\|dark\|system`, chiave localStorage `personal-portfolio:theme`), persistenza doppia DB (`GET/PUT /settings`, chiave `theme`) fonte di verità + localStorage cache anti-FOUC; degradazione verificata (backend irraggiungibile non blocca mai il render, solo `console.warn`) sia empiricamente sia leggendo `api.ts` in review. Script anti-FOUC in `index.html`, `<title>Personal Portfolio</title>`. **T10**: `chart-config.ts` (`chartColors`/`chartGrid`/`chartAxis`/`chartTooltip`, stringhe `hsl(var(--chart-N))`, mai `getComputedStyle`); 6 esadecimali di `Dashboard.tsx` mappati; verificato **a schermo dal controller** che i colori cambiano davvero al toggle tema (non solo al mount). **T11**: `button.tsx`/`alert-dialog.tsx`/`App.tsx`/`Sidebar.tsx` convertiti; `bg-black/50` dell'overlay preservato come unica eccezione dichiarata. **T12**: 7 pagine convertite per esaurimento — grep finale su tutto `frontend/src` dà **una sola riga residua** (l'eccezione dell'overlay), verificato indipendentemente da reviewer e controller. **CHECKPOINT UMANO 3**: automatico (console pulita, inversione colori corretta) + giudizio utente 2026-07-22 — *"la palette va bene, ma dovrà essere ritestata quando sarà davvero implementato l'intero stile nero (compreso lo sfondo)"*: approvazione provvisoria, la ri-validazione finale rientra nei criteri di accettazione manuali di fine piano (8 pagine × 2 temi, incluso `/impostazioni` reale post-T13). **Difetto scoperto fuori piano e chiuso** (commit `0f965b9`): il proxy Vite dev (`vite.config.ts`) fa match per prefisso — la chiave `/backup` intercettava anche `/backup-restore` (route SPA rinominata in T6a), stessa classe di difetto ADR-0033 riemersa nel solo proxy di sviluppo; fix con `bypass` scoperto sulla sola route SPA, verificato via curl diretto (non riproducibile in produzione). **T13** (pagina `/impostazioni` reale, commit `b1f9487`, react-ui-agent): sostituito il placeholder di T6a con le 6 sezioni whitelist (Aspetto/Dashboard esterne/Parametri ETL/Backup/AI) + Secret; `theme` scritto solo via `useTheme()` (nessuna PUT /settings duplicata per quella chiave), ogni campo mostra `applies_when`+`source` da `GET /settings`, i 3 secret sono solo badge configurato/non-configurato + nome variabile `.env`, mai un valore o un input — verificato dal reviewer riga per riga sul diff, 0 Critical/Important. **T14** (chiusura): `version="0.1.0-phase9"` + `/health` `phase: "9"` in `backend/app/main.py`, `alembic heads` = 1 riga (`0003`), suite 144 test verdi confermata post-bump. Blocco A **chiuso**, in attesa di merge su `master`. |
+| F9 Settings centralizzata — **Blocco A** | ☑ fatto (2026-07-23) | ADR-0027 + rettifiche. Eseguito in subagent-driven-development (schema-agent), review dopo ogni task. **T1**: modello `Settings` (`key` PK, `value`, `updated_at`) + revision `0003_settings.py` (`down_revision="0002"`, da riconfermare al merge). **T2**: `services/settings.py` — `WHITELIST` a 6 chiavi (`theme`, `metabase_url`, `ai_history_max_turns`, `import_min_year`, `backup_retention`, `backup_on_startup`) con type/default/env_attr/applies_when; `BLACKLIST` a 3 chiavi; `get_effective(key, session=None)` precedenza DB>env>default con sessione autonoma se `None`; `set_values` transazione singola. **T3**: router `GET/PUT /settings`, import con alias `settings_router` (evita shadowing di `app.config.settings`), blacklist a 3 asserzioni, PUT su chiave illegale → 400 messaggio identico (anti-enumerazione). **T4**: bug latente chiuso — `parse_master_sheet_xlsx(file, sheet_name, sheet_year)` entrambi obbligatori, `grep "settings"` sul parser → 0 match. **T5**: `backup_retention`/`backup_on_startup` riagganciati via `get_effective`; fix di review: lettura `backup_on_startup` nel lifespan avvolta in try/except best-effort (stesso stile di `_run_startup_backup`), altrimenti un DB non migrato avrebbe bloccato il boot. **T6b**: `mount_spa()` estratto, `SPA_ROUTES` a livello di modulo (8 voci, verificate contro `App.tsx` reale). **T7**: test routing ADR-0033 (invariante + comportamento HTTP); fix di review: Test 1 usa `app.main.app.routes` reale invece di una lista router mantenuta a mano (evita drift silenzioso su router futuri). Alembic: `0003 (head)`, una sola riga. Suite: **144 test verdi** (100 pre-esistenti invariati + 44 nuovi). **CHECKPOINT UMANO 1**: superato, `GET/PUT /settings` ispezionato a mano. **CHECKPOINT UMANO 2**: superato sul **container di produzione reale** (rebuild), le 4 URL della tabella routing verificate via browser (`/settings`→JSON, `/impostazioni`→HTML, `/backup`→JSON, `/backup-restore`→HTML). **T13**: pagina `/impostazioni` reale costruita sul contratto `GET/PUT /settings` esistente, nessuna modifica al router/service richiesta — verificato che il payload (6 chiavi whitelist + `secrets_status` a 3 chiavi) copriva già tutti i campi richiesti dalla UI. **T14**: `phase`/`version` → 9, `alembic heads` = 1 riga, suite 144 verdi. Blocco A **chiuso**, in attesa di merge su `master`. |
 | F11 Inserimento manuale — **Blocco B** | ☐ da fare | Pianificata 2026-07-21 (ADR-0028). `POST /transactions` **non esiste oggi**. Nessuna revision. Duplicato forzato con ordinale `#n` sotto `BEGIN IMMEDIATE`. |
 | F12 Filtri avanzati + FTS5 — **Blocco B** | ☐ da fare | Pianificata 2026-07-21 (ADR-0029). Revision FTS5 + trigger. **Gate arm64 bloccante (M12.0)** prima del merge. Rebuild indice dopo restore. |
 | F13 Dashboard avanzate — **Blocco B** | ☐ da fare | Pianificata 2026-07-21 (ADR-0030). Nessuna revision. Estende il `services/insights.py` di F6, mai un secondo. "Saldo cumulato", mai "patrimonio". Metabase invariata. |
@@ -471,26 +476,46 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
-Fase corrente: BLOCCO A (F8 dark mode + F9 settings). F0-F6 + F-DEBT completate.
-Roadmap F8-F14 pianificata il 2026-07-21: spec
-docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md, ADR-0026 → ADR-0032.
-Nessun codice di F8-F14 ancora scritto.
+Fase corrente: BLOCCO A (F8 dark mode + F9 settings) CHIUSO (T0-T14 completati) sul branch
+f8-f9-theme-settings, in attesa di review finale whole-branch e merge su master. F0-F6 +
+F-DEBT completate. Roadmap F8-F14: spec docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md,
+ADR-0026 → ADR-0033.
+
+Spec di dettaglio Blocco A: docs/superpowers/specs/2026-07-21-f8-f9-detail-spec.md.
+Piano eseguito per intero: docs/superpowers/plans/f8-f9-implementation-plan.md — task T0-T14,
+3/3 checkpoint umani superati (C1 dopo T5, C2 dopo T7 su container di produzione reale, C3
+dopo T12 — palette approvata con riserva, vedi sotto). STATO AL 2026-07-23: T13 (pagina
+/impostazioni reale, commit b1f9487) e T14 (chiusura: version/phase → 9, commit successivo)
+completati e review-approvati (0 Critical/Important). `alembic heads` = 1 riga (0003), suite
+144 test verdi. **Prossimo passo: dispatch review finale whole-branch, poi
+superpowers:finishing-a-development-branch per decidere merge su master.** Dopo il merge, via
+libera al Blocco B (f11-f12-f13-transactions). Conferma comunque con
+`git log --oneline f8-f9-theme-settings` prima di procedere: se qualcosa risulta diverso da
+questo elenco, fermarsi e riallineare col ledger `.superpowers/sdd/progress.md` (contiene il
+dettaglio task-per-task, i findings di review e i fix applicati) prima di scrivere codice.
+
+Decisioni chiave del Blocco A (non riaprire, restano valide anche dopo il merge): pagina /impostazioni + endpoint /settings;
+pagina Backup → /backup-restore SENZA redirect; ADR-0033 = nessuna route SPA su path esatto
+di endpoint API (costante SPA_ROUTES + mount_spa() testabile in main.py — chiude il bug
+verificato in produzione: hard-refresh su /backup rispondeva JSON); chart-config.ts esporta
+stringhe hsl(var(--chart-N)), MAI getComputedStyle; token estesi con *-foreground e warning
+(22 in totale, non 21 — vedi ADR-0026 addendum); esadecimali Dashboard = 6; palette HSL
+concreta implementata in T8 (baseline shadcn slate + chart palette standard + success/warning
+custom, valori in ADR-0026 addendum) — approvata con riserva dall'utente 2026-07-22, DA
+RITESTARE quando /impostazioni reale e l'intero flusso tema sono completi (non prima);
+parse_master_sheet_xlsx(file, sheet_name, sheet_year) entrambi obbligatori (bug latente
+anno/tab); get_effective(key, session=None) con precedenza DB > env > default; import router
+settings in main.py SOLO con alias settings_router (settings nudo shadowa app.config.settings
+→ crash al boot); proxy Vite dev su /backup usa bypass scoped su /backup-restore (ADR-0033
+addendum) — NON rimuovere pensando sia residuo dell'Accept-header bypass originale di
+ADR-0022, è un fix diverso per un problema diverso (collisione di prefisso, non di path
+esatto).
 
 F7 Raspberry arm64: ◐ PARCHEGGIATA in attesa hardware (Pi 4 4GB non ancora disponibile).
 NON è bloccante per F8+ e non va ripresa ora. Preparazione completa e verificata da desktop
 (branch f7-raspberry-arm64: gate arm64 PASS, compose con tuning universale, runbook
 docs/RASPBERRY-PI.md pronto, ADR-0024/0025). Riprende solo all'arrivo del Pi, insieme ai
-punti aperti P1-P4 in questo documento. Verificare con `git log`/`git branch` se il merge
-su master è avvenuto.
-
-Prossimo passo: aprire il branch `f8-f9-theme-settings` e scrivere spec di dettaglio +
-piano implementativo del Blocco A (brainstorming → writing-plans → subagent-driven-development,
-come F5/F6/F7). Agenti: react-ui-agent + schema-agent.
-Blocco A in breve: `darkMode:'class'` + token semantici CSS in index.css (:root/.dark, HSL
-triplo) + ThemeProvider con script inline anti-FOUC in index.html; conversione delle 31
-classi colore hardcoded su 11 file e dei 5 esadecimali di Dashboard.tsx via chart-config.ts
-condiviso; tabella `settings` key/value (prima revision dopo 0002) + GET/PUT /settings con
-whitelist e blacklist secret; ottava pagina /settings.
+punti aperti P1-P4 in questo documento.
 
 Ordine dei blocchi: A prima di B (f11-f12-f13-transactions), C (f10-f14-drive-chat)
 indipendente funzionalmente. ATTENZIONE catena Alembic: numero e down_revision si fissano
@@ -503,7 +528,8 @@ MSYS_NO_PATHCONV=1 coi comandi docker run.
 
 Regole sempre valide: no schema change senza alembic revision; no secret committato;
 nessun secret o identificatore privato leggibile da UI/API (ADR-0027); ogni impostazione
-esposta passa da /settings; dubbi → chiedi; PUT /transactions/{id} edita SOLO
+esposta passa dalla pagina /impostazioni (endpoint /settings, ADR-0027/0033); nessuna route
+SPA su path esatto di endpoint (ADR-0033); dubbi → chiedi; PUT /transactions/{id} edita SOLO
 comment/tag/category_id (mai hash_dedup); nessun tool di scrittura esposto al modello AI
 (ADR-0023/0032).
 ```
