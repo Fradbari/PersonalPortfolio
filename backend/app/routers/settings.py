@@ -20,6 +20,7 @@ riporta solo `{"configured": bool(...)}` per nome (ADR-0027 p.6).
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -34,6 +35,23 @@ router = APIRouter(tags=["settings"])
 _INVALID_KEY_MESSAGE = "Una o più chiavi non sono impostazioni valide."
 
 
+def _is_secret_configured(name: str) -> bool:
+    """`configured` per una chiave blacklistata.
+
+    `google_sa_key_path` e' un path su filesystem con un default non vuoto
+    (`app.config.Settings.google_sa_key_path`), quindi `bool(valore)` sarebbe
+    sempre `True` anche quando il file non esiste — il badge deve riflettere
+    l'esistenza reale del file (`os.path.exists`), mai il contenuto (non lo
+    leggiamo mai) ne' il path stesso (resta blacklistato, mai in risposta).
+    Le altre chiavi (`ai_api_key`, `gdrive_backup_folder_id`) sono stringhe
+    libere senza default non-vuoto: `bool(...)` resta corretto.
+    """
+    value = getattr(app_settings, name, None)
+    if name == "google_sa_key_path":
+        return bool(value) and os.path.exists(value)
+    return bool(value)
+
+
 def _settings_payload(session: Session) -> dict[str, Any]:
     settings_list = []
     for key, spec in WHITELIST.items():
@@ -42,11 +60,8 @@ def _settings_payload(session: Session) -> dict[str, Any]:
             {"key": key, "value": value, "source": source, "applies_when": spec["applies_when"]}
         )
 
-    # Solo bool(configured), mai il valore reale (ADR-0027 p.6) — la chiave e'
-    # sempre presente su app.config.settings (attributo pydantic dichiarato).
-    secrets_status = {
-        name: {"configured": bool(getattr(app_settings, name, None))} for name in BLACKLIST
-    }
+    # Solo bool(configured), mai il valore reale (ADR-0027 p.6).
+    secrets_status = {name: {"configured": _is_secret_configured(name)} for name in BLACKLIST}
 
     return {"settings": settings_list, "secrets_status": secrets_status}
 

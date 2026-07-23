@@ -94,6 +94,58 @@ def test_get_settings_secrets_status_has_three_blacklist_keys_with_configured_bo
         assert isinstance(entry["configured"], bool)
 
 
+# --- secrets_status: ramo True/False per ciascuna chiave (review finale Blocco A,
+# Finding 1) ---------------------------------------------------------------------
+
+
+def test_secrets_status_google_sa_key_path_false_when_file_absent(monkeypatch, tmp_path):
+    # `google_sa_key_path` ha un default non vuoto in app.config.Settings
+    # ("/secrets/service_account.json"): bool(valore) sarebbe sempre True anche
+    # a file assente. Il badge deve riflettere l'esistenza reale del file.
+    missing_path = tmp_path / "does-not-exist" / "service_account.json"
+    monkeypatch.setattr(app_settings, "google_sa_key_path", str(missing_path))
+    client, _ = _build_test_app()
+
+    resp = client.get("/settings")
+
+    assert resp.json()["secrets_status"]["google_sa_key_path"]["configured"] is False
+
+
+def test_secrets_status_google_sa_key_path_true_when_file_present(monkeypatch, tmp_path):
+    real_path = tmp_path / "service_account.json"
+    real_path.write_text("{}")
+    monkeypatch.setattr(app_settings, "google_sa_key_path", str(real_path))
+    client, _ = _build_test_app()
+
+    resp = client.get("/settings")
+
+    assert resp.json()["secrets_status"]["google_sa_key_path"]["configured"] is True
+
+
+def test_secrets_status_ai_api_key_false_when_empty_true_when_set(monkeypatch):
+    monkeypatch.setattr(app_settings, "ai_api_key", "")
+    client, _ = _build_test_app()
+    resp = client.get("/settings")
+    assert resp.json()["secrets_status"]["ai_api_key"]["configured"] is False
+
+    monkeypatch.setattr(app_settings, "ai_api_key", "some-key")
+    client, _ = _build_test_app()
+    resp = client.get("/settings")
+    assert resp.json()["secrets_status"]["ai_api_key"]["configured"] is True
+
+
+def test_secrets_status_gdrive_backup_folder_id_false_when_empty_true_when_set(monkeypatch):
+    monkeypatch.setattr(app_settings, "gdrive_backup_folder_id", "")
+    client, _ = _build_test_app()
+    resp = client.get("/settings")
+    assert resp.json()["secrets_status"]["gdrive_backup_folder_id"]["configured"] is False
+
+    monkeypatch.setattr(app_settings, "gdrive_backup_folder_id", "some-folder-id")
+    client, _ = _build_test_app()
+    resp = client.get("/settings")
+    assert resp.json()["secrets_status"]["gdrive_backup_folder_id"]["configured"] is True
+
+
 # --- PUT /settings: scrittura e riflessione in GET ----------------------------
 
 

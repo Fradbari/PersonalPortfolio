@@ -79,10 +79,30 @@ function parseNumberInput(raw: string): number {
   return Number.isNaN(next) ? 0 : next
 }
 
+// `backup_retention` e `import_min_year` non ammettono 0/vuoto: 0 in
+// `apply_local_retention` (backend/app/backup.py) cancella TUTTO lo storico
+// backup locale (`timestamps[0:]`), non "nessuna retention" — nessun default
+// silenzioso, il submit va bloccato con un messaggio visibile (Finding 2).
+const POSITIVE_INT_FIELDS: { key: keyof EditableValues; label: string }[] = [
+  { key: 'backup_retention', label: 'Numero di backup da conservare' },
+  { key: 'import_min_year', label: 'Anno minimo import storico' },
+]
+
+function validatePositiveInts(values: EditableValues): string | null {
+  for (const { key, label } of POSITIVE_INT_FIELDS) {
+    const value = values[key] as number
+    if (!Number.isFinite(value) || value < 1) {
+      return `"${label}" deve essere un numero intero maggiore o uguale a 1.`
+    }
+  }
+  return null
+}
+
 export function Settings() {
   const queryClient = useQueryClient()
   const { theme, setTheme } = useTheme()
   const hydrated = useRef(false)
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   const { data, isLoading, error } = useQuery<SettingsResponse>({
     queryKey: ['settings'],
@@ -122,6 +142,12 @@ export function Settings() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
+    const validationMessage = validatePositiveInts(values)
+    if (validationMessage) {
+      setValidationError(validationMessage)
+      return
+    }
+    setValidationError(null)
     saveMutation.mutate(values)
   }
 
@@ -166,6 +192,7 @@ export function Settings() {
             Anno minimo import storico
             <input
               type="number"
+              min={1}
               value={values.import_min_year}
               onChange={(e) =>
                 setValues((v) => ({ ...v, import_min_year: parseNumberInput(e.target.value) }))
@@ -179,9 +206,10 @@ export function Settings() {
         <section className="rounded-lg border bg-card p-4">
           <h3 className="mb-3 font-semibold">Backup</h3>
           <label className="block text-sm">
-            Retention backup (giorni)
+            Numero di backup da conservare
             <input
               type="number"
+              min={1}
               value={values.backup_retention}
               onChange={(e) =>
                 setValues((v) => ({ ...v, backup_retention: parseNumberInput(e.target.value) }))
@@ -225,6 +253,7 @@ export function Settings() {
           {saveMutation.isSuccess && !saveMutation.isPending ? (
             <span className="ml-3 text-sm text-success">Impostazioni salvate.</span>
           ) : null}
+          {validationError ? <p className="mt-2 text-destructive">{validationError}</p> : null}
           {saveMutation.error ? (
             <p className="mt-2 text-destructive">{(saveMutation.error as Error).message}</p>
           ) : null}
