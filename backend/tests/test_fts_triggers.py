@@ -32,22 +32,67 @@ _REAL_DB_STAT_BEFORE = _REAL_DB_PATH.stat() if _REAL_DB_PATH.exists() else None
 
 
 def _integrity_check(connection) -> None:
-    """Comando speciale FTS5: solleva se l'indice e la content table sono
-    desincronizzati. Le chiamate a questa funzione nei test sono affermazioni "non deve
-    sollevare" — nessun try/except: se solleva, il test fallisce naturalmente."""
-    connection.execute(text("INSERT INTO transactions_fts(transactions_fts) VALUES ('integrity-check')"))
+    """Comando speciale FTS5 con `rank=1` (fix post-review, Finding 1 CRITICAL): la
+    forma SENZA l'argomento `rank` verifica solo la consistenza interna delle
+    strutture FTS5 (le shadow table fra loro), NON il confronto con la content
+    table esterna (`transactions`) — un trigger UPDATE rotto che facesse solo
+    l'insert (mai la meta' delete) NON la farebbe sollevare, desincronizzando
+    l'indice in silenzio (il vecchio termine resterebbe cercabile insieme al
+    nuovo). La forma con `rank=1` include il confronto con la content table e
+    rileva quel bug: verificato empiricamente che non solleva su trigger corretti
+    e solleva `database disk image is malformed` su un trigger UPDATE insert-only.
+    Richiede SQLite >= 3.41 (presente sia in locale sia nel container Docker del
+    progetto).
+
+    Le chiamate a questa funzione nei test sono affermazioni "non deve sollevare"
+    — nessun try/except: se solleva, il test fallisce naturalmente."""
+    connection.execute(
+        text("INSERT INTO transactions_fts(transactions_fts, rank) VALUES ('integrity-check', 1)")
+    )
+
+
+def _match_count(connection, term: str) -> int:
+    """Numero di righe che matchano `term` in `transactions_fts` — asserzione
+    comportamentale diretta (fix post-review, Finding 1 CRITICAL), indipendente
+    dalla versione SQLite: un trigger UPDATE rotto (solo insert, mai la meta'
+    delete) lascerebbe il valore VECCHIO ancora cercabile dopo l'update. Usata nei
+    test insieme a `_integrity_check` invece che da sola, come rete di sicurezza
+    aggiuntiva."""
+    row = connection.execute(
+        text("SELECT COUNT(*) FROM transactions_fts WHERE transactions_fts MATCH :term"),
+        {"term": term},
+    ).fetchone()
+    return row[0]
 
 
 def _trigger_names(connection) -> list[str]:
+    """Trigger il cui nome comincia per `trg_transactions_fts` (fix post-review,
+    Finding 3 MINOR: filtro per prefisso invece di `type='trigger'` puro). Oggi e'
+    innocuo perche' nessun'altra migration crea trigger, ma senza il filtro per
+    prefisso un futuro trigger non-FTS romperebbe silenziosamente sia
+    `== TRIGGER_NAMES` sia `== []` con un fallimento fuorviante in questo file."""
     rows = connection.execute(
-        text("SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name")
+        text(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='trigger' AND name LIKE 'trg_transactions_fts%' "
+            "ORDER BY name"
+        )
     ).fetchall()
     return [row[0] for row in rows]
 
 
 def _fts_object_names(connection) -> list[str]:
-    """Tabelle/trigger il cui nome inizia per `transactions_fts` — la virtual table
-    principale PIU' le shadow table FTS5 (`_data`, `_idx`, `_docsize`, `_config`)."""
+    """Tabelle il cui nome inizia per `transactions_fts` — la virtual table
+    principale PIU' le shadow table FTS5 (`_data`, `_idx`, `_docsize`, `_config`).
+
+    ATTENZIONE (fix post-review, Finding 2 IMPORTANT — la docstring originale
+    affermava il contrario): benche' il filtro SQL includa `type='trigger'`,
+    questa funzione NON intercetta MAI i 3 trigger di sincronizzazione — si
+    chiamano `trg_transactions_fts_insert/_delete/_update` (prefisso `trg_`, non
+    `transactions_fts`), quindi `LIKE 'transactions_fts%'` non li include mai. Per
+    verificare che i trigger siano stati droppati (es. dopo un downgrade) usare
+    SEMPRE `_trigger_names()` separatamente — vedi
+    `test_round_trip_upgrade_downgrade_reupgrade`."""
     rows = connection.execute(
         text(
             "SELECT name FROM sqlite_master "
@@ -98,25 +143,56 @@ def test_integrity_check_ok_after_insert_update_delete(fts_engine):
 
 def test_integrity_check_ok_after_update_comment_and_tag_d6(fts_engine):
     """Criterio 2 / vincolo D6 (brief T3): un UPDATE che modifica `comment` o `tag`,
-    seguito da 'integrity-check', non solleva — dimostra che la meta' DELETE del
-    trigger UPDATE usa valori identici (stessa trasformazione RAW) a quelli indicizzati
-    dall'INSERT originale. Parte anche da `comment`/`tag` NULL (nullable in
-    models.py) per coprire la transizione NULL -> valore, non solo valore -> valore."""
+    seguito da 'integrity-check' (fix post-review: ora con `rank=1`, verifica anche
+    contro la content table esterna — vedi `_integrity_check`), non solleva —
+    dimostra che la meta' DELETE del trigger UPDATE usa valori identici (stessa
+    trasformazione RAW) a quelli indicizzati dall'INSERT originale.
+
+    Copre entrambe le direzioni (fix post-review, Finding 4 MINOR — prima c'era
+    solo NULL -> valore):
+    - `txn_null_to_value`: `comment`/`tag` partono NULL (nullable in models.py) e
+      diventano valorizzati;
+    - `txn_value_to_null`: `comment`/`tag` partono valorizzati e diventano NULL —
+      la direzione in cui l'indice deve PERDERE token, non solo guadagnarli.
+
+    Oltre a 'integrity-check', verifica anche il comportamento diretto via MATCH
+    (fix post-review, Finding 1 CRITICAL): un trigger UPDATE rotto (che facesse
+    solo l'insert, mai la meta' delete — esattamente il bug che D6 deve prevenire)
+    lascerebbe il valore VECCHIO ancora cercabile dopo l'update, cosa che la sola
+    'integrity-check' SENZA `rank` non cattura (verificato empiricamente prima di
+    questo fix, vedi report T3 e fix post-review)."""
     Session = sessionmaker(bind=fts_engine, future=True)
     with Session() as session:
-        txn = _make_transaction(
-            category_raw="Trasporti", comment=None, tag=None, hash_dedup="fts-crit2"
+        txn_null_to_value = _make_transaction(
+            category_raw="Trasporti", comment=None, tag=None, hash_dedup="fts-crit2-null"
         )
-        session.add(txn)
+        txn_value_to_null = _make_transaction(
+            category_raw="Trasporti",
+            comment="nota originale",
+            tag="lavoro",
+            hash_dedup="fts-crit2-tonull",
+        )
+        session.add_all([txn_null_to_value, txn_value_to_null])
         session.commit()
 
-        txn.comment = "biglietto treno"
-        txn.tag = "viaggio"
+        txn_null_to_value.comment = "biglietto treno"
+        txn_null_to_value.tag = "viaggio"
+        txn_value_to_null.comment = None
+        txn_value_to_null.tag = None
         session.commit()
 
     with fts_engine.connect() as conn:
-        _integrity_check(conn)  # non deve sollevare
+        _integrity_check(conn)  # non deve sollevare (rank=1: content table inclusa)
         conn.commit()
+
+    with fts_engine.connect() as conn:
+        # NULL -> valore: il nuovo termine deve essere trovabile.
+        assert _match_count(conn, "biglietto") == 1
+        # valore -> NULL: il vecchio termine NON deve essere piu' trovabile. E'
+        # l'assert che un trigger UPDATE insert-only (bug che D6 deve prevenire)
+        # farebbe fallire, perche' lascerebbe il valore vecchio ancora indicizzato
+        # insieme a quello nuovo.
+        assert _match_count(conn, "originale") == 0
 
 
 def test_batch_alter_table_recreate_always_drops_triggers(fts_engine):
@@ -169,8 +245,13 @@ def test_round_trip_upgrade_downgrade_reupgrade(fts_engine):
     """Criterio 4 (brief T3): round-trip completo.
 
     upgrade (gia' fatto dalla fixture) -> integrity-check OK -> downgrade a 0004
-    -> 0 righe FTS (tabella + shadow table + trigger, tutte con prefisso
-    `transactions_fts`) -> re-upgrade a head -> 3 trigger + integrity-check OK.
+    -> 0 righe fra tabella+shadow table (`_fts_object_names`, prefisso
+    `transactions_fts`) E 0 trigger (`_trigger_names`, verificato SEPARATAMENTE:
+    fix post-review, Finding 2 IMPORTANT — i trigger si chiamano
+    `trg_transactions_fts_*`, il pattern `LIKE 'transactions_fts%'` di
+    `_fts_object_names` non li include mai, quindi prima di questo fix
+    l'asserzione sui trigger dopo il downgrade non veniva mai fatta) ->
+    re-upgrade a head -> 3 trigger + integrity-check OK.
 
     Downgrade esplicito alla revision "0004" (non relativo "-1"): resta corretto
     anche se in futuro `head` si spostasse oltre 0005 per migration successive non
@@ -188,6 +269,11 @@ def test_round_trip_upgrade_downgrade_reupgrade(fts_engine):
 
     with fts_engine.connect() as conn:
         assert _fts_object_names(conn) == []
+        # Fix post-review (Finding 2 IMPORTANT): asserzione esplicita e separata
+        # sui trigger — `_fts_object_names` sopra non li intercetta mai (vedi la
+        # sua docstring), quindi senza questa riga il downgrade dei 3 trigger non
+        # era mai verificato dal round-trip.
+        assert _trigger_names(conn) == []
 
     with fts_engine.connect() as conn:
         run_alembic_upgrade(conn, "head")

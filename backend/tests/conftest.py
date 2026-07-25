@@ -40,6 +40,7 @@ finche' qualcuno non la usa): se un giorno `app.db` eseguisse un PRAGMA o un
 per cui il criterio di accettazione include esplicitamente "`data/portfolio.db` intatto
 dopo il run" — e' la rete di sicurezza che renderebbe rumoroso un eventuale regressione.
 """
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -50,10 +51,20 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Connection
 
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+# Fix post-review (Finding 5 MINOR): non esiste alcun `pytest.ini`/`pyproject.toml`/
+# `setup.cfg`/`tox.ini` in `backend/`, e `tests/` non ha `__init__.py` — pytest
+# aggiunge a `sys.path` la directory di `tests/`, non `backend/`. Senza questo
+# insert, `import app.db` qui sotto fallisce con `ModuleNotFoundError: No module
+# named 'app'` quando pytest e' invocato come comando bare (`pytest ...`).
+# Funzionava solo con `python -m pytest` dalla cwd `backend/` (che antepone la cwd
+# a `sys.path` per conto proprio) — merito dell'invocazione, non della
+# configurazione del progetto.
+sys.path.insert(0, str(BACKEND_DIR))
+
 from app.db import Base
 import app.models  # noqa: F401 — registra i modelli in Base.metadata (stesso import di alembic/env.py:9)
-
-BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
 def _alembic_config() -> Config:
