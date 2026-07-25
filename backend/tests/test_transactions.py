@@ -405,6 +405,42 @@ def test_list_transactions_group_by_month_and_account():
     assert accounts["secondario"]["total"] == 20.0
 
 
+def test_list_transactions_group_by_combined_with_active_filter():
+    """Important dalla review T6: nessun test copriva group_by insieme a un filtro
+    attivo. `conditions` e' costruita una volta sola e riusata identica da entrambi i
+    rami (group_by e paginato) — qui si verifica che il subtotale rifletta SOLO le
+    righe che passano anche il filtro, non l'intero dataset."""
+    client, Session = _build_test_app()
+    with Session() as session:
+        session.add_all(
+            [
+                Transaction(
+                    date=datetime(2026, 1, 5), amount=10.0, currency="EUR", type="expense",
+                    category_raw="Alimentari", account="principale", tag="lavoro",
+                    source="my_finance", hash_dedup="cf1",
+                ),
+                Transaction(
+                    date=datetime(2026, 1, 6), amount=20.0, currency="EUR", type="expense",
+                    category_raw="Alimentari", account="principale", tag=None,
+                    source="my_finance", hash_dedup="cf2",
+                ),
+                Transaction(
+                    date=datetime(2026, 2, 1), amount=100.0, currency="EUR", type="expense",
+                    category_raw="Alimentari", account="principale", tag="lavoro",
+                    source="my_finance", hash_dedup="cf3",
+                ),
+            ]
+        )
+        session.commit()
+
+    resp = client.get("/transactions", params={"group_by": "category", "tag": "lavoro"})
+
+    assert resp.status_code == 200
+    groups = resp.json()["groups"]
+    # Solo cf1 e cf3 hanno tag="lavoro": cf2 (senza tag) resta fuori dal subtotale.
+    assert groups == [{"key": "Alimentari", "count": 2, "total": 110.0}]
+
+
 def test_list_transactions_full_text_search_matches_comment(tmp_path):
     client, Session = _build_fts_test_app(tmp_path)
     with Session() as session:
