@@ -5,7 +5,7 @@ Campi editabili: SOLO `comment`/`tag`/`category_id`. `date`/`amount`/`category_r
 `account`/`type`/`hash_dedup` restano immutabili post-import (ADR-0005/ADR-0013)."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -76,6 +76,16 @@ class CreateTransactionRequest(BaseModel):
     @field_validator("date")
     @classmethod
     def _date_not_too_future(cls, v: datetime) -> datetime:
+        # Un client che manda una data con timezone (es. `Date.toISOString()` in
+        # JS, sempre in questo formato) produce un datetime aware; `limit` sotto
+        # e' naive (`datetime.utcnow()`). Confrontare aware con naive solleva
+        # TypeError, che Pydantic v2 NON converte in 422 (solo ValueError/
+        # AssertionError) — l'eccezione sfuggirebbe come 500. Si normalizza PRIMA
+        # del confronto e si restituisce il valore normalizzato: e' cio' che
+        # compute_hash_dedup e la colonna DB vedranno, quindi deve gia' essere
+        # UTC naive, non il troncamento naive dell'orario locale.
+        if v.tzinfo is not None:
+            v = v.astimezone(timezone.utc).replace(tzinfo=None)
         limit = datetime.utcnow() + timedelta(days=MAX_FUTURE_DAYS)
         if v > limit:
             raise ValueError(f"date non puo' essere piu' di {MAX_FUTURE_DAYS} giorno/i nel futuro")
@@ -131,8 +141,6 @@ def create_transaction(body: CreateTransactionRequest, session: Session = Depend
             },
         )
 
-    get_or_create_account(session, body.account)
-
     def _build(hash_dedup: str) -> Transaction:
         return Transaction(
             date=body.date,
@@ -152,9 +160,32 @@ def create_transaction(body: CreateTransactionRequest, session: Session = Depend
     if twin is None:
         # Prima transazione manuale con questi campi stabili: hash BASE, senza
         # suffisso — l'importer deve poter continuare a trovarla con .in_() (ADR-0005).
+        # get_or_create_account e' DENTRO questo ramo (non prima, condivisa con il
+        # ramo sotto): su un IntegrityError il rollback scarterebbe anche la riga
+        # Account rimasta in sospeso (add+flush, mai commit) di questo tentativo.
         txn = _build(base_hash)
+        get_or_create_account(session, body.account)
         session.add(txn)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError as exc:
+            session.rollback()
+            if not _is_hash_dedup_unique_violation(exc):
+                raise
+            # Doppio invio quasi simultaneo (ADR-0028 p.5, "mai un 500"): l'altra
+            # richiesta ha gia' committato lo stesso hash base fra la nostra
+            # lettura di `twin` e questo commit. Risolvi come duplicato, stessa
+            # shape del 409 esplicito qui sopra — non un 500.
+            gemella = session.execute(
+                select(Transaction).where(Transaction.hash_dedup == base_hash)
+            ).scalar_one_or_none()
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Esiste gia' una transazione identica.",
+                    "transaction": _serialize(gemella) if gemella is not None else None,
+                },
+            )
         session.refresh(txn)
         return _serialize(txn)
 
@@ -162,6 +193,11 @@ def create_transaction(body: CreateTransactionRequest, session: Session = Depend
     for _ in range(MAX_ORDINAL_ATTEMPTS):
         candidate_hash = f"{base_hash}#{_next_free_ordinal(session, base_hash)}"
         txn = _build(candidate_hash)
+        # Idem sopra: ripetuta a ogni tentativo, non prima del loop, altrimenti un
+        # rollback su IntegrityError scarterebbe la riga Account in sospeso del
+        # tentativo fallito. Idempotente per costruzione (get_or_create_account
+        # controlla "esiste gia'?" prima di inserire): ripeterla e' innocuo.
+        get_or_create_account(session, body.account)
         session.add(txn)
         try:
             session.commit()
@@ -175,7 +211,10 @@ def create_transaction(body: CreateTransactionRequest, session: Session = Depend
 
     raise HTTPException(
         status_code=409,
-        detail="Impossibile assegnare un ordinale libero dopo piu' tentativi concorrenti.",
+        detail={
+            "message": "Impossibile assegnare un ordinale libero dopo piu' tentativi concorrenti.",
+            "transaction": None,
+        },
     )
 
 
