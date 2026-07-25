@@ -854,6 +854,17 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   5. **Nota UI (F11, T10)**: l'inserimento manuale è un **dialog** aperto via stato React dentro
      `/transazioni`, non una route nuova — nessuna voce aggiuntiva in `SPA_ROUTES`/`App.tsx`,
      ADR-0033 invariato.
+- **Rettifica (2026-07-25, CHECKPOINT UMANO 1)**: durante CP1 l'implementazione originale
+  rifiutava con **422** una `date` oltre `MAX_FUTURE_DAYS` (1 giorno). L'utente ha corretto la
+  scelta: **non è un rifiuto secco**. Se la data è oltre soglia, il backend risponde **409** con
+  `{"message", "reason": "future_date", "transaction": null}` invece di inserire — stessa
+  meccanica del duplicato consapevole (punto 3 sopra), non una validazione bloccante. Il client
+  rimanda lo stesso body con `confirm_future_date: true` per procedere comunque. Nessuna soglia
+  numerica cambiata (resta 1 giorno): cambia solo cosa succede quando la si supera — un avviso
+  con via d'uscita esplicita, non un errore. Il 409 di duplicato e quello di esaurimento ordinale
+  (punto 3) guadagnano lo stesso discriminante `"reason"` (`"duplicate"` / `"ordinal_exhausted"`)
+  per uniformità del contratto congelato da CP1: un client può gestire tutti i 409 di
+  `POST /transactions` con lo stesso pattern "leggi `reason`, mostra il dialog giusto".
 
 ## ADR-0029 — Filtri avanzati e ricerca full-text (F12): SQLite FTS5 con trigger, rebuild post-restore, gate arm64 come prerequisito di merge, URL come unico stato dei filtri
 

@@ -112,6 +112,7 @@ def test_create_transaction_duplicate_without_allow_returns_409_with_twin():
 
     assert second.status_code == 409
     detail = second.json()["detail"]
+    assert detail["reason"] == "duplicate"
     assert detail["transaction"]["id"] == twin_id
     with Session() as session:
         assert session.query(Transaction).count() == 1
@@ -160,6 +161,7 @@ def test_create_transaction_first_insert_race_returns_409_not_500():
     assert resp.status_code == 409
     detail = resp.json()["detail"]
     assert detail["message"]
+    assert detail["reason"] == "duplicate"
     assert detail["transaction"]["comment"] == "arrivata-prima-per-la-race"
     with Session() as session:
         # Solo la riga "vincente" iniettata dalla race: il nostro tentativo perdente
@@ -329,6 +331,7 @@ def test_create_transaction_retry_gives_409_when_ordinal_always_colliding():
     assert resp.status_code == 409
     detail = resp.json()["detail"]
     assert detail["message"]
+    assert detail["reason"] == "ordinal_exhausted"
     assert detail["transaction"] is None
     with Session() as session:
         # Solo le due righe create prima del patch: nessun inserimento spurio dal loop.
@@ -353,7 +356,11 @@ def test_create_transaction_rejects_invalid_type():
     assert resp.status_code == 422
 
 
-def test_create_transaction_rejects_date_too_far_in_future():
+def test_create_transaction_future_date_without_confirm_returns_409():
+    """CP1 (2026-07-25, rettifica ADR-0028): una data oltre soglia non e' un rifiuto
+    secco (422) ma un avviso da confermare — stessa meccanica del duplicato: 409,
+    l'utente sceglie se procedere o annullare. Nessuna riga inserita finche' non
+    conferma."""
     client, Session = _build_test_app()
     cat_id = _seed_category(Session)
     future_date = (datetime.utcnow() + timedelta(days=30)).isoformat()
@@ -362,7 +369,39 @@ def test_create_transaction_rejects_date_too_far_in_future():
         "/transactions", json={**VALID_BODY, "category_id": cat_id, "date": future_date}
     )
 
-    assert resp.status_code == 422
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["reason"] == "future_date"
+    assert detail["transaction"] is None
+    with Session() as session:
+        assert session.query(Transaction).count() == 0
+
+
+def test_create_transaction_future_date_with_confirm_succeeds():
+    client, Session = _build_test_app()
+    cat_id = _seed_category(Session)
+    future_date = (datetime.utcnow() + timedelta(days=30)).isoformat()
+
+    resp = client.post(
+        "/transactions",
+        json={**VALID_BODY, "category_id": cat_id, "date": future_date, "confirm_future_date": True},
+    )
+
+    assert resp.status_code == 200
+    with Session() as session:
+        assert session.query(Transaction).count() == 1
+
+
+def test_create_transaction_date_within_threshold_needs_no_confirm():
+    """Una data entro la soglia (qui: domani) non deve mai chiedere conferma —
+    il flusso di conferma scatta solo oltre MAX_FUTURE_DAYS."""
+    client, Session = _build_test_app()
+    cat_id = _seed_category(Session)
+    tomorrow = (datetime.utcnow() + timedelta(hours=20)).isoformat()
+
+    resp = client.post("/transactions", json={**VALID_BODY, "category_id": cat_id, "date": tomorrow})
+
+    assert resp.status_code == 200
 
 
 def test_create_transaction_accepts_naive_and_timezone_aware_dates():

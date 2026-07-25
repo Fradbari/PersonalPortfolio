@@ -21,10 +21,10 @@ from app.services.search import build_match_expression, fts_available
 
 router = APIRouter(tags=["transactions"])
 
-# Oltre questa soglia una data futura e' quasi certamente un errore di battitura
-# (es. anno sbagliato) piu' che un inserimento pianificato deliberato: nessun
-# requisito di scheduling e' documentato per l'inserimento manuale (ADR-0028),
-# quindi la soglia resta stretta. Costante isolata per essere facile da rivedere.
+# Oltre questa soglia una data futura e' probabilmente un errore di battitura
+# (es. anno sbagliato) piu' che un inserimento pianificato deliberato — ma non e'
+# un rifiuto secco (rettifica ADR-0028, CP1 2026-07-25): l'utente puo' confermare
+# comunque con `confirm_future_date: true`, stessa logica del duplicato consapevole.
 MAX_FUTURE_DAYS = 1
 
 # Tentativi massimi per trovare un ordinale #n libero prima di arrendersi con 409
@@ -58,6 +58,7 @@ class CreateTransactionRequest(BaseModel):
     comment: Optional[str] = None
     tag: Optional[str] = None
     allow_duplicate: bool = False
+    confirm_future_date: bool = False
 
     @field_validator("amount")
     @classmethod
@@ -75,20 +76,16 @@ class CreateTransactionRequest(BaseModel):
 
     @field_validator("date")
     @classmethod
-    def _date_not_too_future(cls, v: datetime) -> datetime:
-        # Un client che manda una data con timezone (es. `Date.toISOString()` in
-        # JS, sempre in questo formato) produce un datetime aware; `limit` sotto
-        # e' naive (`datetime.utcnow()`). Confrontare aware con naive solleva
-        # TypeError, che Pydantic v2 NON converte in 422 (solo ValueError/
-        # AssertionError) — l'eccezione sfuggirebbe come 500. Si normalizza PRIMA
-        # del confronto e si restituisce il valore normalizzato: e' cio' che
-        # compute_hash_dedup e la colonna DB vedranno, quindi deve gia' essere
-        # UTC naive, non il troncamento naive dell'orario locale.
+    def _normalize_date(cls, v: datetime) -> datetime:
+        # Solo normalizzazione qui, MAI un reject: la soglia sul futuro e' un
+        # avviso da confermare (endpoint, vedi `confirm_future_date`), non un
+        # errore di validazione. Un client che manda una data con timezone (es.
+        # `Date.toISOString()` in JS, sempre in questo formato) produce un
+        # datetime aware; compute_hash_dedup e la colonna DB si aspettano naive
+        # — normalizzare qui garantisce che ogni consumatore veda sempre e solo
+        # UTC naive, mai il troncamento silenzioso dell'orario locale.
         if v.tzinfo is not None:
             v = v.astimezone(timezone.utc).replace(tzinfo=None)
-        limit = datetime.utcnow() + timedelta(days=MAX_FUTURE_DAYS)
-        if v > limit:
-            raise ValueError(f"date non puo' essere piu' di {MAX_FUTURE_DAYS} giorno/i nel futuro")
         return v
 
 
@@ -125,6 +122,23 @@ def create_transaction(body: CreateTransactionRequest, session: Session = Depend
     if category is None:
         raise HTTPException(status_code=404, detail="Categoria non trovata.")
 
+    # Data oltre soglia: avviso da confermare, non un rifiuto secco (CP1
+    # 2026-07-25, rettifica ADR-0028). Stessa meccanica del duplicato sotto —
+    # 409 + un flag esplicito per procedere comunque — cosi' il frontend gestisce
+    # entrambi i casi con lo stesso pattern "409 -> dialog di conferma -> resubmit".
+    # Controllato PRIMA dell'hash/duplicato: e' un avviso sull'input, indipendente
+    # dai dati gia' presenti, non serve toccare il DB per saperlo.
+    future_limit = datetime.utcnow() + timedelta(days=MAX_FUTURE_DAYS)
+    if body.date > future_limit and not body.confirm_future_date:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": f"La data e' piu' di {MAX_FUTURE_DAYS} giorno/i nel futuro. Confermi l'inserimento?",
+                "reason": "future_date",
+                "transaction": None,
+            },
+        )
+
     category_raw = category.name
     base_hash = compute_hash_dedup(body.date, body.amount, category_raw, body.account, body.type)
 
@@ -137,6 +151,7 @@ def create_transaction(body: CreateTransactionRequest, session: Session = Depend
             status_code=409,
             detail={
                 "message": "Esiste gia' una transazione identica.",
+                "reason": "duplicate",
                 "transaction": _serialize(twin),
             },
         )
@@ -183,6 +198,7 @@ def create_transaction(body: CreateTransactionRequest, session: Session = Depend
                 status_code=409,
                 detail={
                     "message": "Esiste gia' una transazione identica.",
+                    "reason": "duplicate",
                     "transaction": _serialize(gemella) if gemella is not None else None,
                 },
             )
@@ -213,6 +229,7 @@ def create_transaction(body: CreateTransactionRequest, session: Session = Depend
         status_code=409,
         detail={
             "message": "Impossibile assegnare un ordinale libero dopo piu' tentativi concorrenti.",
+            "reason": "ordinal_exhausted",
             "transaction": None,
         },
     )
