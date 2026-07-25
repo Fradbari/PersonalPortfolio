@@ -42,22 +42,31 @@ F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico 
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64 ·
 **F8-F14 roadmap in 3 blocchi**.
 
-**Fase corrente: BLOCCO A — F8 dark mode + F9 settings, mergiato su `master`.** Branch
-`f8-f9-theme-settings` (T0-T14, 3/3 checkpoint umani, review finale whole-branch con 2 Important
-trovati e corretti) mergiato con merge commit `bcbdb18` il 2026-07-23. Audit visivo post-merge
-(branch `f8-f9-post-merge-audit`, commit `2b290ef`): grep colori hardcoded pulito su tutto
-`frontend/src`, 8 pagine verificate in light+dark via browser reale, zero errori console; **1
-difetto reale trovato e corretto**: `--warning-foreground` non aveva variante `.dark` (contrasto
-1.22:1, banner di troncamento AI illeggibile in dark — unico uso, `AiAssistant.tsx:61`), fissato
-a `38 92% 85%` e verificato via calcolo WCAG + browser reale sul container rigenerato.
-**Fix successivo** (branch `fix-input-dark-contrast`, commit `37f93ac`): utente ha segnalato con
-screenshot reale input illeggibili in dark su `/impostazioni` (sfondo bianco default browser,
-mai legato al tema, su 7 siti `<input>` del frontend). Fix in `frontend/src/index.css @layer
-base`: regola unica `input:not(checkbox/radio/file), textarea, select -> bg-background
-text-foreground`, invece di patchare i 7 siti uno per uno. Verificato via browser reale
-(dark: `bg=rgb(2,8,23)` `color=rgb(248,250,252)`; light: invariato). `alembic heads` = 1 riga
-(`0003`), suite **148 test verdi**, `version`/`phase` → 9. **Blocco A chiuso, mergiato e
-pushato su `origin/master`** (`37f93ac`). Via libera al **Blocco B** (`f11-f12-f13-transactions`).
+**Fase corrente: BLOCCO B — F11 manuale + F12 filtri/FTS5 + F13 dashboard, APERTO.** Branch
+`f11-f12-f13-transactions` creato da `master` `1a283e4` (= `origin/master`) il 2026-07-25. Spec e
+piano approvati, **zero task eseguiti**: si parte da **T0, il gate M12.0** (build `linux/arm64` +
+`SELECT fts5_version()` nel container emulato), che è un **go/no-go** — se FTS5 mancasse cadrebbero
+T3/T4/T5/T15 e T6 andrebbe riscritto su `LIKE`, cinque task su diciassette.
+- spec: [docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md](docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md)
+- piano: [docs/superpowers/plans/f11-f12-f13-implementation-plan.md](docs/superpowers/plans/f11-f12-f13-implementation-plan.md) (T0-T16, brief per task)
+- ledger: `.superpowers/sdd/progress.md` (Blocco A archiviato in `.superpowers/sdd-archive-blocco-a/`)
+
+Tre checkpoint umani: **CP1** dopo T7 (contratto transazioni), **CP1b** dopo T13 (contratto
+`/insights/panels`, prima che il frontend lo consumi), **CP2** dopo T14 (giudizio visivo).
+**Decisioni del blocco da scrivere in T1**: ADR-0034 nuovo (restore porta il DB a head) + rettifiche
+ad ADR-0028 p.5 (ordinale `#n` con UNIQUE+retry, **mai** `BEGIN IMMEDIATE`), ADR-0029 p.6 (`group_by`
+solo subtotali), ADR-0030 p.3 (endpoint `/insights/panels` separato), ADR-0026 (additiva:
+`--chart-6/7`). Stato di partenza: `alembic heads` = 1 riga (`0003`), **148 test verdi**,
+`/health` `phase: "9"`.
+
+**Blocco A chiuso, mergiato e pushato su `origin/master`.** Branch `f8-f9-theme-settings` (T0-T14,
+3/3 checkpoint, review finale whole-branch con 2 Important corretti) mergiato con `bcbdb18` il
+2026-07-23. Audit visivo post-merge (`2b290ef`): grep colori hardcoded pulito, 8 pagine in
+light+dark via browser reale, **1 difetto trovato e corretto** — `--warning-foreground` senza
+variante `.dark` (contrasto 1.22:1 in `AiAssistant.tsx:61`), fissato a `38 92% 85%`. Fix successivo
+(`37f93ac`): input illeggibili in dark segnalati dall'utente con screenshot, risolti con una regola
+unica in `index.css @layer base` (`input:not(checkbox/radio/file), textarea, select ->
+bg-background text-foreground`) invece di patchare i 7 siti uno per uno. `version`/`phase` → 9.
 
 F0-F6 + F-DEBT completate (F6: query NL read-only `POST /ai/query` + pagina `/assistente-ai`,
 ADR-0023, config `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL` — **mai** `GEMINI_API_KEY`, **mai**
@@ -76,8 +85,9 @@ ADR-0026 → ADR-0033):
   whitelist/blacklist) · ADR-0033 routing (pagina Backup → `/backup-restore`). Spec e piano di
   dettaglio approvati 2026-07-21.
 - **Blocco B** `f11-f12-f13-transactions` — F11 `POST /transactions` manuale · F12 filtri avanzati e
-  FTS5 · F13 dashboard aggiuntive. **Gate bloccante M12.0**: build arm64 + `SELECT fts5_version()`
-  prima del merge.
+  FTS5 · F13 dashboard aggiuntive. **Gate bloccante M12.0**: build arm64 + `SELECT fts5_version()`,
+  eseguito **come primo task** (go/no-go) e ripetuto prima del merge. Spec e piano di dettaglio
+  approvati 2026-07-25; produce **ADR-0034** + rettifiche a 0026/0028/0029/0030.
 - **Blocco C** `f10-f14-drive-chat` — F10 `POST /backup/gdrive-test` (probe write→read→delete) ·
   F14 storicità chat AI (`chat_sessions`/`chat_messages`, modello sempre read-only).
 
