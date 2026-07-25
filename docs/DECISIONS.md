@@ -908,6 +908,10 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   transazione — e **ignora** `page`/`page_size` invece di applicarli ai gruppi. Non è una feature in
   meno: è l'unico modo per cui un subtotale significhi davvero "totale del gruppo" e non "totale
   della pagina corrente del gruppo".
+- **Rettifica (2026-07-25, esecuzione T3)**: il punto 1 elencava solo `comment`, `tag`,
+  `category_raw` come colonne indicizzate da `transactions_fts`. La spec di dettaglio §5 (stessa
+  sessione di pianificazione, non riallineata qui) aggiunge **`account`** come quarta colonna,
+  implementata coerentemente in T3. Colonne corrette: `comment`, `tag`, `category_raw`, `account`.
 
 ## ADR-0030 — Dashboard avanzate (F13): estensione del service layer di F6, mai un secondo; "saldo cumulato" non è "patrimonio netto"; Metabase invariata
 
