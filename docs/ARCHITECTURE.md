@@ -454,8 +454,8 @@ rigenerato: dark `bg=rgb(2,8,23)` `color=rgb(248,250,252)` (leggibile); light in
 (`bg=white` `color=quasi-nero`). 148 test verdi, alembic heads invariato. Blocco A **chiuso,
 mergiato e pushato su `origin/master`** (`37f93ac`). |
 | F9 Settings centralizzata — **Blocco A** | ☑ fatto (2026-07-23) | ADR-0027 + rettifiche. Eseguito in subagent-driven-development (schema-agent), review dopo ogni task. **T1**: modello `Settings` (`key` PK, `value`, `updated_at`) + revision `0003_settings.py` (`down_revision="0002"`, da riconfermare al merge). **T2**: `services/settings.py` — `WHITELIST` a 6 chiavi (`theme`, `metabase_url`, `ai_history_max_turns`, `import_min_year`, `backup_retention`, `backup_on_startup`) con type/default/env_attr/applies_when; `BLACKLIST` a 3 chiavi; `get_effective(key, session=None)` precedenza DB>env>default con sessione autonoma se `None`; `set_values` transazione singola. **T3**: router `GET/PUT /settings`, import con alias `settings_router` (evita shadowing di `app.config.settings`), blacklist a 3 asserzioni, PUT su chiave illegale → 400 messaggio identico (anti-enumerazione). **T4**: bug latente chiuso — `parse_master_sheet_xlsx(file, sheet_name, sheet_year)` entrambi obbligatori, `grep "settings"` sul parser → 0 match. **T5**: `backup_retention`/`backup_on_startup` riagganciati via `get_effective`; fix di review: lettura `backup_on_startup` nel lifespan avvolta in try/except best-effort (stesso stile di `_run_startup_backup`), altrimenti un DB non migrato avrebbe bloccato il boot. **T6b**: `mount_spa()` estratto, `SPA_ROUTES` a livello di modulo (8 voci, verificate contro `App.tsx` reale). **T7**: test routing ADR-0033 (invariante + comportamento HTTP); fix di review: Test 1 usa `app.main.app.routes` reale invece di una lista router mantenuta a mano (evita drift silenzioso su router futuri). Alembic: `0003 (head)`, una sola riga. Suite: **144 test verdi** (100 pre-esistenti invariati + 44 nuovi). **CHECKPOINT UMANO 1**: superato, `GET/PUT /settings` ispezionato a mano. **CHECKPOINT UMANO 2**: superato sul **container di produzione reale** (rebuild), le 4 URL della tabella routing verificate via browser (`/settings`→JSON, `/impostazioni`→HTML, `/backup`→JSON, `/backup-restore`→HTML). **T13**: pagina `/impostazioni` reale costruita sul contratto `GET/PUT /settings` esistente, nessuna modifica al router/service richiesta — verificato che il payload (6 chiavi whitelist + `secrets_status` a 3 chiavi) copriva già tutti i campi richiesti dalla UI. **T14**: `phase`/`version` → 9, `alembic heads` = 1 riga, suite 144 verdi. **Mergiato su `master`** (merge commit `bcbdb18`, 2026-07-23); audit visivo post-merge non ha toccato F9 (nessun residuo di colore nelle pagine settings, vedi riga F8 per il dettaglio del fix trovato altrove). Suite **148 test verdi** (144 + 4 aggiunti nella review finale whole-branch per un badge secret sempre "configurato"). Blocco A **chiuso, mergiato e pushato su `origin/master`** (`37f93ac`). |
-| F11 Inserimento manuale — **Blocco B** | ☐ da fare | Pianificata 2026-07-21 (ADR-0028), **spec di dettaglio e piano approvati 2026-07-25** (`2026-07-25-f11-f12-f13-detail-spec.md`, `f11-f12-f13-implementation-plan.md`, task T7/T10). `POST /transactions` **non esiste oggi**. Nessuna revision. **Rettifica ADR-0028 p.5**: l'ordinale `#n` **non** usa `BEGIN IMMEDIATE` — arbitra il UNIQUE già esistente su `hash_dedup` con retry su `IntegrityError` (max 8 giri, poi 409). Ottenere `BEGIN IMMEDIATE` con pysqlite richiederebbe `isolation_level=None` + listener `begin` **engine-wide**, cambiando il comportamento transazionale di ogni endpoint e restando senza copertura (i 148 test costruiscono ciascuno il proprio engine). Vincolo che ne discende: `category_id` validato **prima** del loop, perché con `foreign_keys=ON` una FK violation è un `IntegrityError` indistinguibile da quella su `hash_dedup`. |
-| F12 Filtri avanzati + FTS5 — **Blocco B** | ☐ da fare | Pianificata 2026-07-21 (ADR-0029), spec/piano 2026-07-25 (task T2-T6, T11). Revision FTS5 + trigger. **Gate arm64 bloccante (M12.0)**, eseguito **come primo task** e ripetuto prima del merge: se FTS5 mancasse cadrebbero 5 task su 17. Rebuild indice dopo restore (T15). **Rettifica ADR-0029 p.6**: `group_by` restituisce **solo subtotali** (`{groups:[{key,count,total}]}`), ramo a short-circuit che ignora `page`/`page_size` — con offset/limit un gruppo si spezzerebbe fra due pagine e il subtotale sarebbe quello della sola pagina. Nasce il **primo `conftest.py`** del progetto (fixture Alembic su `tmp_path`): oggi nessun test usa Alembic, quindi una virtual table creata in migration sarebbe invisibile all'intera suite. |
+| F11 Inserimento manuale — **Blocco B** | ◐ in corso (2026-07-25) | Backend completo: `POST /transactions` (T7, commit `123fb08`+fix `c85cac7`+emendamento CP1 `6b29898`). Ordine ADR-0028: lookup `category_id`→404, poi `category_raw`/hash/insert. Ordinale `#n` con retry su `IntegrityError` (mai `BEGIN IMMEDIATE`, rettifica p.5). **CP1 (checkpoint umano) superato con un emendamento dell'utente**: una data oltre `MAX_FUTURE_DAYS` (1 giorno) non è più un rifiuto 422 ma un avviso 409 `reason:"future_date"` con via d'uscita `confirm_future_date:true` — stessa meccanica del duplicato (`reason:"duplicate"`); terzo `reason:"ordinal_exhausted"` senza via d'uscita. Verificato dal vivo (curl reali + downgrade/upgrade con righe), 201 test verdi. **Restano T8-T10** (frontend: `ApiError`, primitive UI, form+dialog 409) — dettaglio completo in `.superpowers/sdd/progress.md`. |
+| F12 Filtri avanzati + FTS5 — **Blocco B** | ◐ in corso (2026-07-25) | **Gate M12.0 arm64+FTS5: GO** (T0) — bug trovato nello script di verifica del piano (`SELECT fts5_version()` non è una funzione SQL reale), riverificato con `PRAGMA compile_options`+virtual table reale. Migration `0004` indici (T2) + `0005` FTS5/trigger (T3, `content='transactions'` su `comment,tag,category_raw,account`) fatte, review-approvate dopo un fix Critical (il test permanente dei trigger non rilevava un UPDATE trigger insert-only — corretto con `integrity-check` a due argomenti). `services/search.py` (T5) e filtri/`group_by`/`q` su `GET /transactions` (T6) fatti. Nato il primo `conftest.py` del progetto (fixture `fts_engine`, Strategia A con `EnvironmentContext` esplicito) — **T4 è stato assorbito da T3**, non serve più come task separato. **Resta T11** (filtri in `useSearchParams`) e **T15** (rebuild post-restore). |
 | F13 Dashboard avanzate — **Blocco B** | ☐ da fare | Pianificata 2026-07-21 (ADR-0030), spec/piano 2026-07-25 (task T12-T14). Nessuna revision. Estende il `services/insights.py` di F6, mai un secondo. "Saldo cumulato", mai "patrimonio" (verificato da `git grep -i "patrimon"`, non dalla disciplina). Metabase invariata. **Rettifica ADR-0030 p.3**: i sei pannelli escono da un endpoint **nuovo** `GET /insights/panels` e `GET /insights` resta byte-identico — il divieto è su un secondo *service layer*, non su un secondo *endpoint*. Motivo: `test_insights_empty_db_returns_empty_lists` asserisce con `==` sul **body intero**, quindi qualunque chiave aggiunta lo romperebbe. **Rettifica additiva ADR-0026**: `--chart-6`/`--chart-7` (il donut "top 6 + altro" ha 7 fette, i token erano 5); indici 0-4 di `chartColors` invariati. |
 | F10 Backup GDrive + test — **Blocco C** | ☐ da fare | Pianificata 2026-07-21 (ADR-0031). Nessuna revision. Probe write→read→delete: con scope `drive.file` una `list` non prova la scrittura. Errori sanitizzati. |
 | F14 Storicità chat AI — **Blocco C** | ☐ da fare | Pianificata 2026-07-21 (ADR-0032). Revision `chat_sessions`/`chat_messages`. Breaking change su `AIProvider.answer`: fake provider aggiornato **prima** della firma. Modello resta read-only. |
@@ -488,47 +488,81 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
 Fase corrente: BLOCCO B (F11 manuale + F12 filtri/FTS5 + F13 dashboard) APERTO — branch
-f11-f12-f13-transactions creato da master 1a283e4 (= origin/master), spec e piano approvati
-2026-07-25, ZERO task eseguiti. Blocco A chiuso, mergiato e pushato. F0-F6 + F-DEBT completate.
-Roadmap F8-F14: docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md, ADR-0026 → ADR-0033.
+f11-f12-f13-transactions. T0-T7 fatti e review-approvati, CP1 SUPERATO (con un emendamento
+dell'utente, vedi sotto). T8-T16 zero task eseguiti. HEAD del branch: 6b29898. Suite: 201 test
+verdi, `alembic heads` = 1 riga (0005). Blocco A chiuso, mergiato e pushato. F0-F6 + F-DEBT
+completate. Roadmap F8-F14: docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md,
+ADR-0026 → ADR-0034.
 
 Documenti del Blocco B, leggerli PRIMA di toccare codice:
 - spec:   docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md
 - piano:  docs/superpowers/plans/f11-f12-f13-implementation-plan.md  (task T0-T16, brief per task)
-- ledger: .superpowers/sdd/progress.md   (Blocco A archiviato in .superpowers/sdd-archive-blocco-a/)
+- ledger: .superpowers/sdd/progress.md — **leggere prima la sezione "STATO PER RIPRESA" in cima**,
+  contiene il contratto congelato da CP1 e le cose da non riscoprire (due bug nel testo del piano
+  già trovati e corretti, verificati empiricamente, non solo per lettura).
 
-**Prossimo passo: T0 — gate M12.0 arm64 + FTS5.** È un go/no-go e va eseguito PRIMA di
-qualunque codice: se l'immagine linux/arm64 non avesse FTS5, cadrebbero T3/T4/T5/T15 e T6
-andrebbe riscritto su LIKE (5 task su 17). Comandi esatti nel piano, sezione T0. Su questa
-macchina serve MSYS_NO_PATHCONV=1 sui docker run con -e VAR=/path.
-Esecuzione in subagent-driven-development: un task per subagent, review dopo ciascuno,
-3 checkpoint umani — CP1 dopo T7 (contratto transazioni), CP1b dopo T13 (contratto
-/insights/panels, prima che il frontend lo consumi), CP2 dopo T14 (giudizio visivo).
-Stato di partenza: `alembic heads` = 1 riga (0003), suite 148 test verdi, /health phase "9".
-Conferma con `git log --oneline` e il ledger se qualcosa risulta diverso.
+**Prossimo passo: T8 — `ApiError` con `status`/`body` in `frontend/src/lib/api.ts`** (agente
+react-ui-agent). Poi T9 (primitive UI input/label/select) e T10 (form manuale + dialog 409/
+future_date), che consumano il contratto backend congelato da CP1 — vedi ledger per lo shape
+esatto dei tre `reason` possibili sul 409 di `POST /transactions`
+(`duplicate`/`future_date`/`ordinal_exhausted`). Esecuzione in subagent-driven-development: un
+task per subagent, review dopo ciascuno. **2 checkpoint umani restanti**: CP1b dopo T13
+(contratto `/insights/panels`, prima che il frontend lo consumi), CP2 dopo T14 (giudizio
+visivo).
+
+**CP1 (contratto transazioni) — superato 2026-07-25 con un emendamento dell'utente rispetto
+all'implementazione iniziale**: la soglia `MAX_FUTURE_DAYS` (1 giorno, invariata) non produce più
+un rifiuto secco (422) su una data futura — l'utente ha chiesto un flusso di conferma: 409 con
+`reason:"future_date"` e via d'uscita `confirm_future_date:true`, stessa meccanica del duplicato
+consapevole. I tre 409 possibili di `POST /transactions` condividono ora il discriminante
+`"reason"` (`duplicate`/`future_date`/`ordinal_exhausted`) — contratto congelato, T8/T10 lo
+consumano per nome. Rettifica scritta in ADR-0028 ("CHECKPOINT UMANO 1"). Verificato dal vivo
+(server reale su DB scratch, curl sui 3 casi POST + filtri/q/group_by GET + downgrade/upgrade
+con righe reali) prima di considerarlo chiuso — non solo pytest.
+
+**Due bug trovati nel TESTO del piano/spec approvati, non nel progetto** (entrambi verificati
+empiricamente dal controller e/o da un subagent indipendente, non solo per lettura — dettaglio
+completo nel ledger):
+1. Il gate T0/T16 prescrive testualmente `SELECT fts5_version()`: non è una funzione SQL reale di
+   SQLite, non esiste in nessuna versione. Verifica corretta: `PRAGMA compile_options`
+   (`ENABLE_FTS5`) + una vera `CREATE VIRTUAL TABLE ... USING fts5(...)` di prova. **Alla ripresa
+   di T16, non ripetere il comando letterale del piano** — darebbe di nuovo un falso negativo
+   (il gate T0 di QUESTA sessione è comunque GO, verificato con la forma corretta).
+2. Il criterio T3 sul test permanente dei trigger dice "i 3 trigger esistono ancora" dopo
+   `batch_alter_table(recreate="always")`: è l'opposto della realtà (verificato con Alembic 1.14.0
+   reale). Il test committato (`test_fts_triggers.py`) è scritto correttamente come **canary che
+   dimostra il pericolo**, non un fix — se in futuro iniziasse a fallire nel senso "i trigger
+   sopravvivono", sarebbe una notizia (cambio di comportamento SQLite/Alembic), non un test da
+   aggiustare invertendo l'asserzione.
+
+**T4 è stato assorbito da T3** durante l'esecuzione: la fixture `fts_engine` che T3 ha dovuto
+costruire per il proprio test di round-trip soddisfa già alla lettera ogni criterio che T4
+avrebbe dovuto aggiungere (function-scoped, no autouse, Strategia A completa). Non dispatchare un
+subagent per T4 alla ripresa — non c'è lavoro separato da fare.
 
 Sei difetti trovati in ricognizione che la roadmap dava per scontati (dettaglio in spec §2 —
-ognuno chiude un fallimento SILENZIOSO, non un errore): D1 un solo test F5
-(test_insights.py:117-118) asserisce con == sul body intero, quindi /insights non si arricchisce
-e i pannelli escono da /insights/panels; D2 nessun conftest.py esiste e i 148 test usano
-create_all(), mai Alembic → una virtual table in migration sarebbe invisibile a tutti; D3
-api.ts:9 scarta status e body, quindi il 409 con la gemella non arriverebbe al form; D4
-render_as_batch=True → un batch_alter_table('transactions') DOPO la migration FTS droppa i 3
-trigger senza ricrearli (indici prima della FTS, e test permanente in suite); D5
-POST /backup/restore non fa girare Alembic, difetto attivo GIÀ OGGI per la tabella settings di
-F9; D6 i trigger su contenuto esterno richiedono INSERT INTO fts(fts,rowid,...) VALUES('delete',
-...) con i VECCHI valori, identici a quelli indicizzati dall'INSERT.
+ognuno chiude un fallimento SILENZIOSO, non un errore), stato di chiusura aggiornato: D1 un solo
+test F5 (test_insights.py:117-118) asserisce con == sul body intero → **da chiudere in T13**
+(endpoint /insights/panels separato, non ancora fatto); D2 nessun conftest.py esisteva → **CHIUSO**
+in T3 (primo conftest.py del progetto, fixture `fts_engine`); D3 api.ts:9 scarta status e body →
+**da chiudere in T8** (non ancora fatto); D4 render_as_batch=True + batch_alter_table dopo la
+migration FTS droppa i 3 trigger → **CHIUSO** (T2 = ultima migration con ricreazione tabella su
+transactions; T3 = test permanente/canary, vedi punto 2 sopra); D5 POST /backup/restore non fa
+girare Alembic → **da chiudere in T15** (non ancora fatto); D6 i trigger su contenuto esterno
+richiedono il comando 'delete' coi valori VECCHI → **CHIUSO** in T3, con un fix Critical
+post-review (l'`integrity-check` a un solo argomento non verificava la content table esterna,
+corretto con la forma a due argomenti `('integrity-check', 1)`).
 
-Decisioni del Blocco B (prese 2026-07-25, da scrivere in DECISIONS.md in T1 — NON riaprirle):
-ADR-0034 nuovo = il restore porta il DB a head (copia → upgrade → rebuild FTS → replica, quattro
-try/except separati, threading.Lock su tutti); rettifica ADR-0028 p.5 = ordinale #n con UNIQUE +
-retry, MAI BEGIN IMMEDIATE (sarebbe engine-wide e senza copertura); rettifica ADR-0029 p.6 =
-group_by solo subtotali; rettifica ADR-0030 p.3 = endpoint /insights/panels separato; rettifica
-additiva ADR-0026 = --chart-6/--chart-7. Contratto di /insights/panels CONGELATO nella spec §7
-(forma a chiavi nominate, donut ≤7 con "Altro" aggregato dal backend, savings_rate=0.0 se
+Decisioni del Blocco B scritte in DECISIONS.md in T1 (NON riaprirle, salvo l'emendamento CP1 già
+incorporato): ADR-0034 nuovo = il restore porta il DB a head (copia → upgrade → rebuild FTS →
+replica, quattro try/except separati, threading.Lock su tutti — **non ancora implementato**,
+è T15); rettifica ADR-0028 p.5 = ordinale #n con UNIQUE + retry, MAI BEGIN IMMEDIATE (**fatto**,
+T7); rettifica ADR-0029 p.6 = group_by solo subtotali (**fatto**, T6); rettifica ADR-0030 p.3 =
+endpoint /insights/panels separato (**non ancora fatto**, T13); rettifica additiva ADR-0026 =
+--chart-6/--chart-7 (**non ancora fatto**, T12). Contratto di /insights/panels CONGELATO nella
+spec §7 (forma a chiavi nominate, donut ≤7 con "Altro" aggregato dal backend, savings_rate=0.0 se
 income==0, delta_pct=null se il mese precedente è 0, months TRONCA e non riempie → array più
-corti di 12). Primo passo di T1: verificare con `grep "^## ADR-" docs/DECISIONS.md` che 0034 sia
-ancora libero.
+corti di 12) — **CP1b lo verificherà su risposta reale prima che il frontend lo consumi**.
 
 Decisioni chiave del Blocco A (non riaprire, restano valide dopo il merge): pagina /impostazioni + endpoint /settings;
 pagina Backup → /backup-restore SENZA redirect; ADR-0033 = nessuna route SPA su path esatto
@@ -557,11 +591,16 @@ punti aperti P1-P4 in questo documento.
 Ordine dei blocchi: A prima di B (f11-f12-f13-transactions), C (f10-f14-drive-chat)
 indipendente funzionalmente. ATTENZIONE catena Alembic: numero e down_revision si fissano
 AL MERGE, non alla scrittura — chi mergia per secondo rebasa sulla head reale, `alembic heads`
-deve dare UNA sola riga. Gate bloccante di B: M12.0 — build linux/arm64 + `SELECT
-fts5_version()` nel container emulato prima di mergiare.
+deve dare UNA sola riga. Gate bloccante di B: M12.0 — build linux/arm64 + verifica FTS5 (forma
+corretta, non il comando letterale del piano — vedi sopra) nel container emulato prima di
+mergiare, da ripetere in T16.
 
 Nota macchina Windows: Git Bash converte i path in `-e VAR=/path` (MSYS) — usare
-MSYS_NO_PATHCONV=1 coi comandi docker run.
+MSYS_NO_PATHCONV=1 coi comandi docker run. Scoperto in questa sessione: lo stesso problema si
+presenta anche con un `export VAR=...` persistente in una shell Git Bash che precede l'uso in un
+processo Python nativo Windows (path POSIX non convertito, "unable to open database file"); il
+pattern affidabile è il prefisso inline sullo stesso comando, `DB_PATH="$DB" comando...`, che
+Git Bash converte correttamente.
 
 Regole sempre valide: no schema change senza alembic revision; no secret committato;
 nessun secret o identificatore privato leggibile da UI/API (ADR-0027); ogni impostazione

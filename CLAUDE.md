@@ -43,21 +43,31 @@ F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6
 **F8-F14 roadmap in 3 blocchi**.
 
 **Fase corrente: BLOCCO B — F11 manuale + F12 filtri/FTS5 + F13 dashboard, APERTO.** Branch
-`f11-f12-f13-transactions` creato da `master` `1a283e4` (= `origin/master`) il 2026-07-25. Spec e
-piano approvati, **zero task eseguiti**: si parte da **T0, il gate M12.0** (build `linux/arm64` +
-`SELECT fts5_version()` nel container emulato), che è un **go/no-go** — se FTS5 mancasse cadrebbero
-T3/T4/T5/T15 e T6 andrebbe riscritto su `LIKE`, cinque task su diciassette.
+`f11-f12-f13-transactions` creato da `master` `1a283e4` il 2026-07-25. **T0-T7 fatti e
+review-approvati, CP1 superato (2026-07-25) con un emendamento dell'utente** (vedi sotto);
+T8-T16 non ancora iniziati. HEAD del branch: `6b29898`. **201 test verdi**, `alembic heads` = 1
+riga (`0005`).
 - spec: [docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md](docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md)
 - piano: [docs/superpowers/plans/f11-f12-f13-implementation-plan.md](docs/superpowers/plans/f11-f12-f13-implementation-plan.md) (T0-T16, brief per task)
-- ledger: `.superpowers/sdd/progress.md` (Blocco A archiviato in `.superpowers/sdd-archive-blocco-a/`)
+- ledger: `.superpowers/sdd/progress.md` — **sezione "STATO PER RIPRESA" in cima**: contratto
+  congelato da CP1, due bug trovati nel testo del piano (non nel progetto, entrambi verificati
+  empiricamente), T4 assorbito da T3. Leggerla prima di riprendere. (Blocco A archiviato in
+  `.superpowers/sdd-archive-blocco-a/`)
 
-Tre checkpoint umani: **CP1** dopo T7 (contratto transazioni), **CP1b** dopo T13 (contratto
-`/insights/panels`, prima che il frontend lo consumi), **CP2** dopo T14 (giudizio visivo).
-**Decisioni del blocco da scrivere in T1**: ADR-0034 nuovo (restore porta il DB a head) + rettifiche
-ad ADR-0028 p.5 (ordinale `#n` con UNIQUE+retry, **mai** `BEGIN IMMEDIATE`), ADR-0029 p.6 (`group_by`
-solo subtotali), ADR-0030 p.3 (endpoint `/insights/panels` separato), ADR-0026 (additiva:
-`--chart-6/7`). Stato di partenza: `alembic heads` = 1 riga (`0003`), **148 test verdi**,
-`/health` `phase: "9"`.
+**Prossimo passo: T8** (`ApiError` in `frontend/src/lib/api.ts`, react-ui-agent) — il primo dei
+task frontend (T8-T12) che consumano il contratto backend congelato da CP1.
+
+Checkpoint umani: **CP1 superato** dopo T7 (contratto transazioni) — l'utente ha corretto la
+soglia data-futura da rifiuto secco (422) a flusso di conferma (409 `reason:"future_date"` +
+`confirm_future_date:true`, stessa meccanica del duplicato `reason:"duplicate"`; terzo
+`reason:"ordinal_exhausted"`); rettifica scritta in ADR-0028. **CP1b** dopo T13 (contratto
+`/insights/panels`, prima che il frontend lo consumi) e **CP2** dopo T14 (giudizio visivo)
+restano da fare.
+**Decisioni del blocco scritte in T1** (invariate salvo l'emendamento CP1 sopra): ADR-0034 nuovo
+(restore porta il DB a head — **non ancora implementato**, è T15) + rettifiche ad ADR-0028 p.5
+(ordinale `#n` con UNIQUE+retry, **mai** `BEGIN IMMEDIATE` — **fatto**, T7), ADR-0029 p.6
+(`group_by` solo subtotali — **fatto**, T6), ADR-0030 p.3 (endpoint `/insights/panels` separato —
+**non ancora fatto**, T13), ADR-0026 (additiva: `--chart-6/7` — **non ancora fatto**, T12).
 
 **Blocco A chiuso, mergiato e pushato su `origin/master`.** Branch `f8-f9-theme-settings` (T0-T14,
 3/3 checkpoint, review finale whole-branch con 2 Important corretti) mergiato con `bcbdb18` il
