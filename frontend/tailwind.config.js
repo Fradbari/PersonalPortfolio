@@ -27,6 +27,8 @@ export default {
         'chart-3': 'hsl(var(--chart-3) / <alpha-value>)',
         'chart-4': 'hsl(var(--chart-4) / <alpha-value>)',
         'chart-5': 'hsl(var(--chart-5) / <alpha-value>)',
+        'chart-6': 'hsl(var(--chart-6) / <alpha-value>)',
+        'chart-7': 'hsl(var(--chart-7) / <alpha-value>)',
       },
     },
   },
