@@ -43,19 +43,24 @@ F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6
 **F8-F14 roadmap in 3 blocchi**.
 
 **Fase corrente: BLOCCO B — F11 manuale + F12 filtri/FTS5 + F13 dashboard, APERTO.** Branch
-`f11-f12-f13-transactions` creato da `master` `1a283e4` il 2026-07-25. **T0-T7 fatti e
+`f11-f12-f13-transactions` creato da `master` `1a283e4` il 2026-07-25. **T0-T12 fatti e
 review-approvati, CP1 superato (2026-07-25) con un emendamento dell'utente** (vedi sotto);
-T8-T16 non ancora iniziati. HEAD del branch: `6b29898`. **201 test verdi**, `alembic heads` = 1
-riga (`0005`).
+T13-T16 non ancora iniziati. HEAD del branch: `13d616f` (8 commit avanti rispetto a
+`origin/f11-f12-f13-transactions`, non pushato). **201 test backend verdi** (invariati, T8-T12
+sono solo frontend/CSS) + `test_spa_routing.py` rieseguito dopo T10, `alembic heads` = 1 riga
+(`0005`).
 - spec: [docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md](docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md)
 - piano: [docs/superpowers/plans/f11-f12-f13-implementation-plan.md](docs/superpowers/plans/f11-f12-f13-implementation-plan.md) (T0-T16, brief per task)
 - ledger: `.superpowers/sdd/progress.md` — **sezione "STATO PER RIPRESA" in cima**: contratto
   congelato da CP1, due bug trovati nel testo del piano (non nel progetto, entrambi verificati
-  empiricamente), T4 assorbito da T3. Leggerla prima di riprendere. (Blocco A archiviato in
-  `.superpowers/sdd-archive-blocco-a/`)
+  empiricamente), T4 assorbito da T3, dettaglio review T8-T12 (Important trovati e corretti su T8/
+  T10/T11, Minor accumulati da triagiare alla review finale whole-branch). Leggerla prima di
+  riprendere. (Blocco A archiviato in `.superpowers/sdd-archive-blocco-a/`)
 
-**Prossimo passo: T8** (`ApiError` in `frontend/src/lib/api.ts`, react-ui-agent) — il primo dei
-task frontend (T8-T12) che consumano il contratto backend congelato da CP1.
+**Prossimo passo: T13** (service + `GET /insights/panels` in `backend/app/services/insights.py` +
+`backend/app/routers/insights.py`, dashboard-agent) — contratto congelato in spec §7, da
+implementare alla lettera; `GET /insights` e i suoi 5 test **non si toccano**, `ai/tools.py` non si
+tocca. Poi **CP1b** (checkpoint umano sul contratto `/insights/panels`).
 
 Checkpoint umani: **CP1 superato** dopo T7 (contratto transazioni) — l'utente ha corretto la
 soglia data-futura da rifiuto secco (422) a flusso di conferma (409 `reason:"future_date"` +
