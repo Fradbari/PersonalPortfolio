@@ -31,6 +31,8 @@ export default defineConfig({
       // regolarmente al backend.
       '/backup': {
         target: 'http://localhost:8000',
+        // TODO(Blocco-C): req.url === '/backup-restore' non copre query string — se
+        // /backup-restore acquisisce filtri, aggiornare il bypass
         bypass: (req) => (req.url === '/backup-restore' ? req.url : undefined),
       },
       '/settings': 'http://localhost:8000',
