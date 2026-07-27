@@ -1,101 +1,90 @@
+// frontend/src/pages/Dashboard.tsx
+//
+// F13 (ADR-0030): sei pannelli complementari a Metabase (che resta
+// invariata, ADR-0004/ADR-0019 non superati) su `GET /insights/panels` —
+// saldo cumulato, cash flow mensile, spesa per categoria (donut), trend
+// risparmio, confronto mese su mese, riga di 4 KPI — più "Saldo per conto",
+// mantenuto da `GET /insights` (nessun equivalente nel nuovo contratto,
+// nessuno ha chiesto di rimuoverlo).
+//
+// Tre pannelli precedenti di questa pagina (entrate/uscite mensili, spesa
+// per categoria, saldo cumulato ALL-TIME) sono SOSTITUITI dalle versioni
+// nuove sopra, non affiancati: mostrare vecchio e nuovo "Saldo cumulato"
+// fianco a fianco con numeri diversi (all-time vs finestrato a `months`)
+// sotto lo stesso nome avrebbe confuso più che aiutato. Decisione presa in
+// dispatch T14, da confermare a CP2 (checkpoint umano, giudizio visivo).
 import { useQuery } from '@tanstack/react-query'
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import { BalanceByAccountPanel } from '@/components/dashboard/BalanceByAccountPanel'
+import { CashFlowPanel } from '@/components/dashboard/CashFlowPanel'
+import { CategoryDonutPanel } from '@/components/dashboard/CategoryDonutPanel'
+import { CumulativeBalancePanel } from '@/components/dashboard/CumulativeBalancePanel'
+import { KpiCards } from '@/components/dashboard/KpiCards'
+import { MonthOverMonthPanel } from '@/components/dashboard/MonthOverMonthPanel'
+import { SavingsTrendPanel } from '@/components/dashboard/SavingsTrendPanel'
 import { api } from '@/lib/api'
-import { chartAxis, chartColors, chartGrid, chartTooltip } from '@/lib/chart-config'
 
-interface Insights {
-  monthly_trend: { year_month: string; income: number; expense: number }[]
-  category_breakdown: { category_raw: string; total: number }[]
+// Contratto congelato a CP1b (spec F13 §7, verificato dal vivo in T13):
+// forma a chiavi nominate, non `{panels: [...]}`. Gli array sono di
+// lunghezza variabile — `months` tronca, non riempie — e possono essere
+// vuoti (mai `null`) a DB vuoto o su una finestra senza transazioni.
+interface InsightsPanels {
+  kpi: { income: number; expense: number; net: number; savings_rate: number }
   cumulative_balance: { year_month: string; balance: number; cumulative_balance: number }[]
+  cash_flow: { year_month: string; income: number; expense: number; net: number }[]
+  category_donut: { category_raw: string; total: number }[]
+  savings_trend: { year_month: string; savings_rate: number }[]
+  month_over_month: {
+    current_month: string | null
+    previous_month: string | null
+    current: Record<string, number>
+    previous: Record<string, number>
+    delta_pct: Record<string, number | null>
+  }
+}
+
+// Sottoinsieme di `GET /insights` (F5/F6): qui serve solo `balance_by_account`,
+// l'unico pannello di questa pagina rimasto su questo endpoint (T14) — gli
+// altri tre campi (`monthly_trend`/`category_breakdown`/`cumulative_balance`)
+// sono quelli sostituiti dai pannelli nuovi sopra, non dichiarati qui perché
+// non consumati.
+interface Insights {
   balance_by_account: { account: string; balance: number }[]
 }
 
 export function Dashboard() {
-  const { data, isLoading, error } = useQuery<Insights>({
+  const {
+    data: panels,
+    isLoading: panelsLoading,
+    error: panelsError,
+  } = useQuery<InsightsPanels>({
+    queryKey: ['insights', 'panels'],
+    queryFn: () => api.get<InsightsPanels>('/insights/panels'),
+  })
+
+  const {
+    data: insights,
+    isLoading: insightsLoading,
+    error: insightsError,
+  } = useQuery<Insights>({
     queryKey: ['insights'],
     queryFn: () => api.get<Insights>('/insights'),
   })
 
-  if (isLoading) return <p>Caricamento...</p>
-  if (error) return <p className="text-destructive">Errore: {(error as Error).message}</p>
-  if (!data) return null
+  if (panelsLoading || insightsLoading) return <p>Caricamento...</p>
+  if (panelsError) return <p className="text-destructive">Errore: {(panelsError as Error).message}</p>
+  if (insightsError) return <p className="text-destructive">Errore: {(insightsError as Error).message}</p>
+  if (!panels || !insights) return null
 
   return (
-    <div className="grid grid-cols-2 gap-6">
-      <div className="rounded-lg border bg-card p-4">
-        <h2 className="mb-4 font-semibold">Entrate vs uscite (mensile)</h2>
-        <ResponsiveContainer width="100%" height={250}>
-          <LineChart data={data.monthly_trend}>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
-            <XAxis dataKey="year_month" stroke={chartAxis} tick={{ fill: chartAxis }} />
-            <YAxis stroke={chartAxis} tick={{ fill: chartAxis }} />
-            <Tooltip contentStyle={chartTooltip} />
-            <Line type="monotone" dataKey="income" stroke={chartColors[1]} name="Entrate" />
-            <Line type="monotone" dataKey="expense" stroke={chartColors[0]} name="Uscite" />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="rounded-lg border bg-card p-4">
-        <h2 className="mb-4 font-semibold">Spesa per categoria</h2>
-        <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={data.category_breakdown}>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
-            <XAxis dataKey="category_raw" hide stroke={chartAxis} tick={{ fill: chartAxis }} />
-            <YAxis stroke={chartAxis} tick={{ fill: chartAxis }} />
-            <Tooltip contentStyle={chartTooltip} />
-            <Bar dataKey="total" fill={chartColors[2]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="rounded-lg border bg-card p-4">
-        <h2 className="mb-4 font-semibold">Saldo cumulato</h2>
-        <ResponsiveContainer width="100%" height={250}>
-          <AreaChart data={data.cumulative_balance}>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
-            <XAxis dataKey="year_month" stroke={chartAxis} tick={{ fill: chartAxis }} />
-            <YAxis stroke={chartAxis} tick={{ fill: chartAxis }} />
-            <Tooltip contentStyle={chartTooltip} />
-            <Area
-              type="monotone"
-              dataKey="cumulative_balance"
-              stroke={chartColors[3]}
-              fill="hsl(var(--chart-4) / 0.2)"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="rounded-lg border bg-card p-4">
-        <h2 className="mb-4 font-semibold">Saldo per conto</h2>
-        <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={data.balance_by_account} layout="vertical">
-            <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
-            <XAxis type="number" stroke={chartAxis} tick={{ fill: chartAxis }} />
-            <YAxis
-              dataKey="account"
-              type="category"
-              width={100}
-              stroke={chartAxis}
-              tick={{ fill: chartAxis }}
-            />
-            <Tooltip contentStyle={chartTooltip} />
-            <Bar dataKey="balance" fill={chartColors[4]} />
-          </BarChart>
-        </ResponsiveContainer>
+    <div className="space-y-6">
+      <KpiCards kpi={panels.kpi} />
+      <div className="grid grid-cols-2 gap-6">
+        <CumulativeBalancePanel data={panels.cumulative_balance} />
+        <CashFlowPanel data={panels.cash_flow} />
+        <CategoryDonutPanel data={panels.category_donut} />
+        <SavingsTrendPanel data={panels.savings_trend} />
+        <MonthOverMonthPanel data={panels.month_over_month} />
+        <BalanceByAccountPanel data={insights.balance_by_account} />
       </div>
     </div>
   )
