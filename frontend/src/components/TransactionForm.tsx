@@ -118,6 +118,19 @@ export function TransactionForm() {
     createMutation.reset()
   }
 
+  // Punto unico di aggiornamento campo (review T10, Important #1): un edit dopo un
+  // 409 deve far sparire SUBITO banner e pulsante di conferma. Senza questo,
+  // "Inserisci comunque"/"Confermi la data?" resterebbero visibili e rimanderebbero
+  // ancora createMutation.variables — il payload di PRIMA della correzione, non
+  // quello che lo schermo mostra ora. Un solo punto invece di ripeterlo negli 8
+  // onChange sotto.
+  function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((f) => ({ ...f, [key]: value }))
+    if (createMutation.error) {
+      createMutation.reset()
+    }
+  }
+
   function buildPayload(): CreatePayload {
     return {
       date: new Date(form.date).toISOString(),
@@ -178,7 +191,19 @@ export function TransactionForm() {
     // Solo React state (`open`): nessun history.pushState / location.hash qui o
     // altrove nel componente — il back del browser non deve chiudere il dialog,
     // deve fare quello che avrebbe fatto comunque (criterio T10).
-    <div className="fixed inset-0 z-50 bg-black/50" onClick={closeAndReset}>
+    <div
+      className="fixed inset-0 z-50 bg-black/50"
+      // SOLO setOpen(false), MAI closeAndReset qui (review T10, Important #2): un
+      // click sul backdrop può scattare anche da un drag di selezione testo iniziato
+      // dentro un campo (es. Commento) e rilasciato fuori dal pannello — il click
+      // sintetico punta all'antenato comune di mousedown/mouseup, cioè il backdrop
+      // stesso, e lo stopPropagation sul pannello sotto non lo previene (non è un
+      // bubbling dal pannello, il target è già il backdrop). Azzerare form/mutation
+      // qui perderebbe input dell'utente senza conferma su un gesto incidentale;
+      // riaprendo il form i dati sono ancora lì. Solo Annulla o un salvataggio
+      // riuscito azzerano davvero (closeAndReset).
+      onClick={() => setOpen(false)}
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -195,7 +220,7 @@ export function TransactionForm() {
               type="date"
               required
               value={form.date}
-              onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+              onChange={(e) => updateField('date', e.target.value)}
             />
           </div>
 
@@ -209,7 +234,7 @@ export function TransactionForm() {
                 min="0.01"
                 required
                 value={form.amount}
-                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                onChange={(e) => updateField('amount', e.target.value)}
               />
             </div>
             <div className="w-24">
@@ -217,7 +242,7 @@ export function TransactionForm() {
               <Input
                 id="txn-currency"
                 value={form.currency}
-                onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+                onChange={(e) => updateField('currency', e.target.value)}
               />
             </div>
           </div>
@@ -228,7 +253,7 @@ export function TransactionForm() {
               <Select
                 id="txn-type"
                 value={form.type}
-                onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+                onChange={(e) => updateField('type', e.target.value)}
               >
                 <option value="expense">Uscita</option>
                 <option value="income">Entrata</option>
@@ -240,7 +265,7 @@ export function TransactionForm() {
                 id="txn-category"
                 required
                 value={form.category_id}
-                onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))}
+                onChange={(e) => updateField('category_id', e.target.value)}
               >
                 <option value="" disabled>
                   Seleziona...
@@ -261,7 +286,7 @@ export function TransactionForm() {
               list="txn-account-options"
               required
               value={form.account}
-              onChange={(e) => setForm((f) => ({ ...f, account: e.target.value }))}
+              onChange={(e) => updateField('account', e.target.value)}
             />
             {/* Suggerisce i conti esistenti ma non li impone: il backend registra
                 as-is anche un conto mai visto prima (ADR-0006), quindi un input
@@ -279,7 +304,7 @@ export function TransactionForm() {
             <Input
               id="txn-comment"
               value={form.comment}
-              onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
+              onChange={(e) => updateField('comment', e.target.value)}
             />
           </div>
 
@@ -288,7 +313,7 @@ export function TransactionForm() {
             <Input
               id="txn-tag"
               value={form.tag}
-              onChange={(e) => setForm((f) => ({ ...f, tag: e.target.value }))}
+              onChange={(e) => updateField('tag', e.target.value)}
             />
           </div>
 
