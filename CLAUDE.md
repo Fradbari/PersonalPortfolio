@@ -43,36 +43,40 @@ F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6
 **F8-F14 roadmap in 3 blocchi**.
 
 **Fase corrente: BLOCCO B — F11 manuale + F12 filtri/FTS5 + F13 dashboard, APERTO.** Branch
-`f11-f12-f13-transactions` creato da `master` `1a283e4` il 2026-07-25. **T0-T12 fatti e
-review-approvati, CP1 superato (2026-07-25) con un emendamento dell'utente** (vedi sotto);
-T13-T16 non ancora iniziati. HEAD del branch: `13d616f` (8 commit avanti rispetto a
-`origin/f11-f12-f13-transactions`, non pushato). **201 test backend verdi** (invariati, T8-T12
-sono solo frontend/CSS) + `test_spa_routing.py` rieseguito dopo T10, `alembic heads` = 1 riga
-(`0005`).
+`f11-f12-f13-transactions` creato da `master` `1a283e4` il 2026-07-25. **T0-T14 fatti e
+review-approvati, CP1 e CP1b superati** (vedi sotto); T15-T16 restano, poi CP2 e la review finale
+whole-branch. HEAD del branch: `0092227` (12 commit avanti rispetto a
+`origin/f11-f12-f13-transactions`, non pushato). **239 test backend verdi** (T8-T12/T14 sono solo
+frontend/CSS, nessuno tocca schema), `alembic heads` = 1 riga (`0005`).
 - spec: [docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md](docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md)
 - piano: [docs/superpowers/plans/f11-f12-f13-implementation-plan.md](docs/superpowers/plans/f11-f12-f13-implementation-plan.md) (T0-T16, brief per task)
 - ledger: `.superpowers/sdd/progress.md` — **sezione "STATO PER RIPRESA" in cima**: contratto
-  congelato da CP1, due bug trovati nel testo del piano (non nel progetto, entrambi verificati
-  empiricamente), T4 assorbito da T3, dettaglio review T8-T12 (Important trovati e corretti su T8/
-  T10/T11, Minor accumulati da triagiare alla review finale whole-branch). Leggerla prima di
-  riprendere. (Blocco A archiviato in `.superpowers/sdd-archive-blocco-a/`)
+  congelato da CP1/CP1b, due bug trovati nel testo del piano (non nel progetto, entrambi
+  verificati empiricamente), T4 assorbito da T3, dettaglio review T8-T14 (Important trovati e
+  corretti su T8/T10/T11/T14, Minor accumulati da triagiare alla review finale whole-branch).
+  Leggerla prima di riprendere. (Blocco A archiviato in `.superpowers/sdd-archive-blocco-a/`)
 
-**Prossimo passo: T13** (service + `GET /insights/panels` in `backend/app/services/insights.py` +
-`backend/app/routers/insights.py`, dashboard-agent) — contratto congelato in spec §7, da
-implementare alla lettera; `GET /insights` e i suoi 5 test **non si toccano**, `ai/tools.py` non si
-tocca. Poi **CP1b** (checkpoint umano sul contratto `/insights/panels`).
+**Prossimo passo: CP2** (checkpoint umano, giudizio visivo sui 7 pannelli dashboard — serve un
+browser reale, l'ultima verifica di T14 non ne aveva uno disponibile) → **T15** (restore:
+`alembic upgrade head` + rebuild FTS in `POST /backup/restore`) → **T16** (chiusura blocco) →
+review finale whole-branch → merge.
 
 Checkpoint umani: **CP1 superato** dopo T7 (contratto transazioni) — l'utente ha corretto la
 soglia data-futura da rifiuto secco (422) a flusso di conferma (409 `reason:"future_date"` +
 `confirm_future_date:true`, stessa meccanica del duplicato `reason:"duplicate"`; terzo
-`reason:"ordinal_exhausted"`); rettifica scritta in ADR-0028. **CP1b** dopo T13 (contratto
-`/insights/panels`, prima che il frontend lo consumi) e **CP2** dopo T14 (giudizio visivo)
-restano da fare.
-**Decisioni del blocco scritte in T1** (invariate salvo l'emendamento CP1 sopra): ADR-0034 nuovo
-(restore porta il DB a head — **non ancora implementato**, è T15) + rettifiche ad ADR-0028 p.5
-(ordinale `#n` con UNIQUE+retry, **mai** `BEGIN IMMEDIATE` — **fatto**, T7), ADR-0029 p.6
-(`group_by` solo subtotali — **fatto**, T6), ADR-0030 p.3 (endpoint `/insights/panels` separato —
-**non ancora fatto**, T13), ADR-0026 (additiva: `--chart-6/7` — **non ancora fatto**, T12).
+`reason:"ordinal_exhausted"`); rettifica scritta in ADR-0028. **CP1b superato** dopo T13 —
+verifica dal vivo del controller su copia scratch del DB reale (numeri esatti contro i totali
+noti F2) più due punti che il contratto congelato non decideva alla lettera, **confermati
+esplicitamente dall'utente**: `month_over_month` ignora la finestra `months`/`date_from` di
+default (resta ancorato all'ultimo mese con dati reali, verificato empiricamente: giugno, non il
+mese corrente) ed è solo-uscite come `category_donut`. **CP2** dopo T14 (giudizio visivo) resta
+da fare.
+**Decisioni del blocco scritte in T1** (invariate salvo l'emendamento CP1 e le due conferme CP1b
+sopra): ADR-0034 nuovo (restore porta il DB a head — **non ancora implementato**, è T15, unico
+pezzo del blocco non ancora fatto oltre a T16) + rettifiche ad ADR-0028 p.5 (ordinale `#n` con
+UNIQUE+retry, **mai** `BEGIN IMMEDIATE` — **fatto**, T7), ADR-0029 p.6 (`group_by` solo subtotali
+— **fatto**, T6), ADR-0030 p.3 (endpoint `/insights/panels` separato — **fatto**, T13), ADR-0026
+(additiva: `--chart-6/7` — **fatto**, T12).
 
 **Blocco A chiuso, mergiato e pushato su `origin/master`.** Branch `f8-f9-theme-settings` (T0-T14,
 3/3 checkpoint, review finale whole-branch con 2 Important corretti) mergiato con `bcbdb18` il
