@@ -33,7 +33,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new ApiError(res.status, body.detail ?? body)
+    throw new ApiError(res.status, body.detail)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -54,7 +54,7 @@ export async function uploadFile<T>(path: string, file: File): Promise<T> {
   const res = await fetch(path, { method: 'POST', body: formData })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new ApiError(res.status, body.detail ?? body)
+    throw new ApiError(res.status, body.detail)
   }
   return res.json() as Promise<T>
 }
