@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { TransactionForm } from '@/components/TransactionForm'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -100,7 +101,10 @@ export function Transactions() {
 
   return (
     <div>
-      <h2 className="mb-4 text-lg font-semibold">Transazioni</h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Transazioni</h2>
+        <TransactionForm />
+      </div>
       <div className="mb-4 flex gap-3">
         <input
           type="month"
