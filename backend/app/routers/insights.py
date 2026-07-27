@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -46,3 +46,23 @@ def get_insights(
             session, date_from=date_from, date_to=date_to, type_=type_
         ),
     }
+
+
+@router.get("/insights/panels")
+def get_insights_panels(
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    account: str | None = None,
+    months: int = Query(default=12, ge=1),
+    session: Session = Depends(get_session),
+):
+    """Sei pannelli dashboard complementari a Metabase (F13, ADR-0030): saldo
+    cumulato, cash flow mensile, spese per categoria (donut), trend risparmio,
+    confronto mese su mese, KPI. Endpoint **separato** da `GET /insights`
+    sopra — stesso file per coesione dei router, contratto e parametri
+    indipendenti (niente `type_`: i pannelli mostrano entrate e uscite insieme
+    per costruzione, non è una decisione di questo endpoint). Wrapper sottile:
+    tutta l'aggregazione vive in `insights_service.panels_summary`."""
+    return insights_service.panels_summary(
+        session, date_from=date_from, date_to=date_to, account=account, months=months
+    )
