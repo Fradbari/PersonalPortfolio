@@ -126,7 +126,12 @@ export function Transactions() {
   })
   params.set('page', String(page))
 
-  const { data, isLoading } = useQuery<TransactionsResponse>({
+  const {
+    data,
+    isLoading,
+    isError: isTransactionsError,
+    error: transactionsError,
+  } = useQuery<TransactionsResponse>({
     // `filters` e `params` sopra vengono dallo stesso `FILTER_KEYS`: un filtro
     // aggiunto all'uno e' per costruzione gia' nell'altro (vedi commento su
     // FILTER_KEYS). `page` resta un elemento separato della chiave, come nello
@@ -308,6 +313,17 @@ export function Transactions() {
           Cancella filtri
         </Button>
       </div>
+
+      {isTransactionsError ? (
+        // Il backend risponde 503 (non 500, non un 200 vuoto) quando l'indice FTS5
+        // manca (search.py) proprio per distinguere "indice giu'" da "zero risultati" —
+        // con `keepPreviousData` un errore scarta il placeholder e `data` torna
+        // undefined, quindi senza questo la tabella si limiterebbe a apparire vuota,
+        // indistinguibile da una ricerca senza esiti. Stesso pattern di
+        // `deleteMutation.error` sotto: `(error as Error).message`, `ApiError` estende
+        // `Error` e il body del 503 e' una stringa semplice.
+        <p className="mb-3 text-destructive">{(transactionsError as Error).message}</p>
+      ) : null}
 
       <table className="w-full text-sm">
         <thead>
