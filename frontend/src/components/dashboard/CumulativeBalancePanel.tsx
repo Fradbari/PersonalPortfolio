@@ -3,8 +3,9 @@
 // Saldo cumulato (ADR-0030 p.4/p.5): somma di entrate meno uscite mese su
 // mese, sulla finestra risolta di `months` (default 12) — NON tutto lo
 // storico come la vecchia versione da `GET /insights` che questo pannello
-// sostituisce (T14). MAI "patrimonio": non esiste alcun modello
-// asset/passività, solo un cumulato di transazioni (ADR-0030 p.4).
+// sostituisce (T14). Il nome vietato per questo dato è coperto da un grep a
+// radice di parola su tutto il repo (ADR-0030 p.4): qui non esiste alcun
+// modello di attività/debiti, solo un cumulato di transazioni.
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { chartAxis, chartColors, chartGrid, chartTooltip } from '@/lib/chart-config'
 import { formatCurrencyTooltip } from '@/lib/format'
