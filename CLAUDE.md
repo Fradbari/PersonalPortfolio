@@ -43,11 +43,10 @@ F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6
 **F8-F14 roadmap in 3 blocchi**.
 
 **Fase corrente: BLOCCO B — F11 manuale + F12 filtri/FTS5 + F13 dashboard, APERTO.** Branch
-`f11-f12-f13-transactions` creato da `master` `1a283e4` il 2026-07-25. **T0-T14 fatti e
-review-approvati, CP1 e CP1b superati** (vedi sotto); T15-T16 restano, poi CP2 e la review finale
-whole-branch. HEAD del branch: `0092227` (12 commit avanti rispetto a
-`origin/f11-f12-f13-transactions`, non pushato). **239 test backend verdi** (T8-T12/T14 sono solo
-frontend/CSS, nessuno tocca schema), `alembic heads` = 1 riga (`0005`).
+`f11-f12-f13-transactions` creato da `master` `1a283e4` il 2026-07-25. **T0-T16 fatti e
+review-approvati, CP1/CP1b/CP2 superati** (vedi sotto); resta solo la review finale whole-branch
+→ merge. Le modifiche T15/T16 sono nel working tree, non ancora committate (HEAD `0092227`, 12
+commit precedenti già fatti). **245 test backend verdi**, `alembic heads` = 1 riga (`0005`).
 - spec: [docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md](docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md)
 - piano: [docs/superpowers/plans/f11-f12-f13-implementation-plan.md](docs/superpowers/plans/f11-f12-f13-implementation-plan.md) (T0-T16, brief per task)
 - ledger: `.superpowers/sdd/progress.md` — **sezione "STATO PER RIPRESA" in cima**: contratto
@@ -56,10 +55,17 @@ frontend/CSS, nessuno tocca schema), `alembic heads` = 1 riga (`0005`).
   corretti su T8/T10/T11/T14, Minor accumulati da triagiare alla review finale whole-branch).
   Leggerla prima di riprendere. (Blocco A archiviato in `.superpowers/sdd-archive-blocco-a/`)
 
-**Prossimo passo: CP2** (checkpoint umano, giudizio visivo sui 7 pannelli dashboard — serve un
-browser reale, l'ultima verifica di T14 non ne aveva uno disponibile) → **T15** (restore:
-`alembic upgrade head` + rebuild FTS in `POST /backup/restore`) → **T16** (chiusura blocco) →
-review finale whole-branch → merge.
+**Prossimo passo: review finale whole-branch** (il reviewer più capace disponibile) →
+superpowers:finishing-a-development-branch (commit T15/T16 + merge). **T15 fatto** (ADR-0034,
+2026-09-05): `POST /backup/restore` = copia → `upgrade_schema_to_head()` (`command.upgrade`+`NullPool`
+in `backup.py`) → `rebuild_fts_index` → refresh replica, 4 try/except distinti in un `threading.Lock`,
+body `migrations_applied:N`+`schema_note`; chiude D5 (ultimo difetto aperto). Footgun evitato:
+`_alembic_config()` NON passa `alembic.ini` (altrimenti `fileConfig(disable_existing_loggers=True)`
+silenzierebbe i logger dell'app a ogni restore). **T16 fatto**: version/phase→13 + test dedicato,
+grep `patrimon` (post `git add -A`) = 0, `alembic heads` = 1 (0005), round-trip upgrade/downgrade
+0002 OK, gate FTS5 arm64 (base image `python:3.12-slim`) GO. Il build completo dell'immagine di
+produzione arm64 sotto QEMU non è stato rieseguito (solo Python cambiato, superficie FTS5/arm64
+invariata) — opzionale prima del merge.
 
 Checkpoint umani: **CP1 superato** dopo T7 (contratto transazioni) — l'utente ha corretto la
 soglia data-futura da rifiuto secco (422) a flusso di conferma (409 `reason:"future_date"` +
@@ -69,8 +75,10 @@ verifica dal vivo del controller su copia scratch del DB reale (numeri esatti co
 noti F2) più due punti che il contratto congelato non decideva alla lettera, **confermati
 esplicitamente dall'utente**: `month_over_month` ignora la finestra `months`/`date_from` di
 default (resta ancorato all'ultimo mese con dati reali, verificato empiricamente: giugno, non il
-mese corrente) ed è solo-uscite come `category_donut`. **CP2** dopo T14 (giudizio visivo) resta
-da fare.
+mese corrente) ed è solo-uscite come `category_donut`. **CP2 superato** (2026-09-04) dopo T14:
+giudizio visivo da browser reale confermato dall'utente (7 pannelli leggibili in dark, wording
+corretto, `--chart-6/7` non collidono, dialog 409 mostra la gemella) — ultimo checkpoint umano del
+blocco.
 **Decisioni del blocco scritte in T1** (invariate salvo l'emendamento CP1 e le due conferme CP1b
 sopra): ADR-0034 nuovo (restore porta il DB a head — **non ancora implementato**, è T15, unico
 pezzo del blocco non ancora fatto oltre a T16) + rettifiche ad ADR-0028 p.5 (ordinale `#n` con
