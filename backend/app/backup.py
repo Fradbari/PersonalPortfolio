@@ -9,14 +9,26 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import pandas as pd
-from sqlalchemy import select
+from alembic import command
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
+from app.config import settings
 from app.models import Transaction
 
 BACKUP_PREFIX = "portfolio_backup_"
 TIMESTAMP_FMT = "%Y%m%d_%H%M%S"
+
+# backend/ (contiene alembic.ini e la cartella alembic/): due livelli sopra questo file
+# (backend/app/backup.py). Assoluto perche' `upgrade_schema_to_head()` gira dentro un
+# processo il cui cwd non e' garantito essere backend/ (a differenza dell'invocazione da
+# riga di comando su cui e' tarato il path relativo di alembic.ini).
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 TRANSACTION_COLUMNS = {
     "date": "Data",
@@ -109,7 +121,11 @@ def apply_local_retention(dest_dir: str, retention: int) -> list[str]:
 def restore_from_backup(engine: Engine, backup_db_path: str, live_db_path: str) -> None:
     """Sovrascrive il DB live col backup scelto (operazione distruttiva, ADR-0018
     punto 5). L'engine viene chiuso prima della sostituzione file; la prossima
-    connessione lo riapre automaticamente (il listener WAL in app.db si riattiva)."""
+    connessione lo riapre automaticamente (il listener WAL in app.db si riattiva).
+
+    Filesystem-puro di proposito (ADR-0034 p.2): non fa girare Alembic ne' tocca l'indice
+    FTS -- quella logica vive in `upgrade_schema_to_head()`, orchestrata dal router dopo
+    questa copia. Cosi' resta testabile su un engine senza FTS in `test_backup_core.py`."""
     if not os.path.exists(backup_db_path):
         raise FileNotFoundError(f"Backup non trovato: {backup_db_path}")
 
@@ -119,3 +135,53 @@ def restore_from_backup(engine: Engine, backup_db_path: str, live_db_path: str) 
         stale_side_file = f"{live_db_path}{ext}"
         if os.path.exists(stale_side_file):
             os.remove(stale_side_file)
+
+
+def _alembic_config() -> Config:
+    """Config Alembic con solo `script_location` assoluto (indipendente dalla cwd),
+    SENZA passare `alembic.ini`.
+
+    Deliberato: `command.upgrade` esegue `alembic/env.py`, che chiama
+    `fileConfig(config.config_file_name)` solo quando un file di config e' presente. Il
+    default di `fileConfig` e' `disable_existing_loggers=True`: passare l'ini
+    silenzierebbe TUTTI i logger gia' creati (inclusi quelli dell'app) a ogni restore.
+    Non passandolo, `config_file_name` resta None, `env.py` salta `fileConfig` e i logger
+    dell'app sopravvivono. `script_location` e' l'unica opzione che serve per l'upgrade."""
+    cfg = Config()
+    cfg.set_main_option("script_location", os.path.join(BACKEND_DIR, "alembic"))
+    return cfg
+
+
+def upgrade_schema_to_head() -> int:
+    """Porta il DB live (`settings.db_path`) a head via Alembic dopo un restore
+    (ADR-0034 p.1-3). Ritorna il numero di migration applicate.
+
+    `command.upgrade` esegue `alembic/env.py`, che costruisce il PROPRIO engine
+    `NullPool` leggendo `settings.db_url` (`env.py:12`): nasce quindi DOPO che la copia
+    del restore ha gia' sovrascritto il file, cosi' la migration colpisce il DB
+    restaurato e non quello pre-restore (ADR-0034 p.3). `NullPool` non cachea
+    connessioni, nessun handle stantio sul file appena sostituito.
+
+    Il conteggio e' calcolato PRIMA dell'upgrade confrontando la revision corrente del
+    file con la head, sulla catena lineare delle migration (invariante di progetto:
+    `alembic heads` = una sola riga)."""
+    cfg = _alembic_config()
+    script = ScriptDirectory.from_config(cfg)
+    ordered = [rev.revision for rev in reversed(list(script.walk_revisions()))]  # base -> head
+
+    probe_engine = create_engine(settings.db_url, poolclass=NullPool)
+    try:
+        with probe_engine.connect() as connection:
+            current = MigrationContext.configure(connection).get_current_revision()
+    finally:
+        probe_engine.dispose()
+
+    if current is None:
+        applied = len(ordered)
+    elif current in ordered:
+        applied = len(ordered) - 1 - ordered.index(current)
+    else:
+        applied = 0
+
+    command.upgrade(cfg, "head")
+    return applied
