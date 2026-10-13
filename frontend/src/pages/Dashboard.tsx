@@ -78,7 +78,7 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <KpiCards kpi={panels.kpi} />
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <CumulativeBalancePanel data={panels.cumulative_balance} />
         <CashFlowPanel data={panels.cash_flow} />
         <CategoryDonutPanel data={panels.category_donut} />

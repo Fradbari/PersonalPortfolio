@@ -12,7 +12,7 @@
 // `.split()`/formattazione su un valore nullo più giù nel componente.
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { chartAxis, chartColors, chartGrid, chartTooltip } from '@/lib/chart-config'
-import { formatDeltaPercent, formatYearMonth } from '@/lib/format'
+import { formatCurrencyTooltip, formatDeltaPercent, formatYearMonth } from '@/lib/format'
 import { DashboardPanel } from './DashboardPanel'
 import { EmptyState } from './EmptyState'
 
@@ -82,9 +82,9 @@ export function MonthOverMonthPanel({ data }: { data: MonthOverMonth }) {
               <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
               <XAxis dataKey="category" hide stroke={chartAxis} tick={{ fill: chartAxis }} />
               <YAxis stroke={chartAxis} tick={{ fill: chartAxis }} />
-              <Tooltip contentStyle={chartTooltip} />
+              <Tooltip contentStyle={chartTooltip} formatter={formatCurrencyTooltip} />
               <Legend />
-              <Bar dataKey="previous" name={previousLabel} fill={chartColors[4]} />
+              <Bar dataKey="previous" name={previousLabel} fill={chartColors[6]} />
               <Bar dataKey="current" name={currentLabel} fill={chartColors[2]} />
             </BarChart>
           </ResponsiveContainer>

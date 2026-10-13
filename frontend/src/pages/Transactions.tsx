@@ -163,13 +163,17 @@ export function Transactions() {
       api.put(`/transactions/${vars.id}`, vars.body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['insights'] })
       setEditingId(null)
     },
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.delete(`/transactions/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['transactions'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['insights'] })
+    },
   })
 
   function startEdit(t: Transaction) {
@@ -301,7 +305,7 @@ export function Transactions() {
           />
         </label>
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-          Cerca (commento, tag, categoria, conto)
+          Cerca (commento, tag, categoria grezza, conto)
           <input
             type="text"
             value={filters.q}

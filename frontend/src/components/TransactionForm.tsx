@@ -92,11 +92,19 @@ export function TransactionForm() {
 
   const queryClient = useQueryClient()
 
-  const { data: categories } = useQuery<Category[]>({
+  const {
+    data: categories,
+    isError: isCategoriesError,
+    error: categoriesError,
+  } = useQuery<Category[]>({
     queryKey: ['categories'],
     queryFn: () => api.get<Category[]>('/categories'),
   })
-  const { data: accounts } = useQuery<Account[]>({
+  const {
+    data: accounts,
+    isError: isAccountsError,
+    error: accountsError,
+  } = useQuery<Account[]>({
     queryKey: ['accounts'],
     queryFn: () => api.get<Account[]>('/accounts'),
   })
@@ -135,7 +143,7 @@ export function TransactionForm() {
     return {
       date: new Date(form.date).toISOString(),
       amount: Number(form.amount),
-      currency: form.currency.trim() || 'EUR',
+      currency: form.currency.trim().toUpperCase() || 'EUR',
       type: form.type,
       category_id: Number(form.category_id),
       account: form.account.trim(),
@@ -213,6 +221,12 @@ export function TransactionForm() {
       >
         <h3 className="mb-4 text-lg font-semibold">Nuova transazione</h3>
         <form onSubmit={handleSubmit} className="space-y-3">
+          {isCategoriesError ? (
+            <p className="text-sm text-destructive">{(categoriesError as Error).message}</p>
+          ) : null}
+          {isAccountsError ? (
+            <p className="text-sm text-destructive">{(accountsError as Error).message}</p>
+          ) : null}
           <div>
             <Label htmlFor="txn-date">Data</Label>
             <Input
