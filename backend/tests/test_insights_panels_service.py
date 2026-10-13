@@ -192,6 +192,29 @@ def test_category_donut_8_categories_keeps_top_6_and_buckets_the_rest_as_altro()
     assert result[6] == {"category_raw": "Altro", "total": 300.0}  # 200 + 100
 
 
+def test_category_donut_orders_by_total_not_alphabetically():
+    # Ordine alfabetico (A..H) opposto a quello per importo: distingue "top 6 per totale"
+    # da "prime 6 in ordine alfabetico".
+    Session = _build_test_session()
+    amounts = {
+        "Alfa": 10.0, "Beta": 20.0, "Gamma": 30.0, "Delta": 40.0,
+        "Epsilon": 500.0, "Zeta": 600.0, "Eta": 700.0, "Theta": 800.0,
+    }
+    with Session() as session:
+        _seed_categories(session, amounts)
+        result = category_donut(session)
+
+    assert result == [
+        {"category_raw": "Theta", "total": 800.0},
+        {"category_raw": "Eta", "total": 700.0},
+        {"category_raw": "Zeta", "total": 600.0},
+        {"category_raw": "Epsilon", "total": 500.0},
+        {"category_raw": "Delta", "total": 40.0},
+        {"category_raw": "Gamma", "total": 30.0},
+        {"category_raw": "Altro", "total": 30.0},  # Beta 20 + Alfa 10
+    ]
+
+
 def test_category_donut_exactly_6_categories_has_no_altro_bucket():
     Session = _build_test_session()
     amounts = {"C1": 60.0, "C2": 50.0, "C3": 40.0, "C4": 30.0, "C5": 20.0, "C6": 10.0}

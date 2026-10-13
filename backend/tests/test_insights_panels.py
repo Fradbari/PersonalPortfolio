@@ -121,6 +121,13 @@ def test_insights_panels_full_shape_with_explicit_date_range():
     assert body["month_over_month"]["delta_pct"]["Trasporti"] == -100.0
 
 
+def test_insights_panels_months_upper_bound_is_600():
+    client, _Session = _build_test_app()
+
+    assert client.get("/insights/panels", params={"months": 601}).status_code == 422
+    assert client.get("/insights/panels", params={"months": 600}).status_code == 200
+
+
 def test_insights_panels_account_filter():
     client, Session = _build_test_app()
     _seed(Session)

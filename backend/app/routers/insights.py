@@ -53,7 +53,7 @@ def get_insights_panels(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     account: str | None = None,
-    months: int = Query(default=12, ge=1),
+    months: int = Query(default=12, ge=1, le=600),
     session: Session = Depends(get_session),
 ):
     """Sei pannelli dashboard complementari a Metabase (F13, ADR-0030): saldo
