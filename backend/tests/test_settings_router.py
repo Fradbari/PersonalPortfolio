@@ -229,7 +229,7 @@ def test_put_settings_blacklisted_key_and_unknown_key_return_identical_message()
 # --- Boot reale: nessun AttributeError da shadowing di app.config.settings ---
 
 
-def test_main_app_boots_without_shadowing_app_config_settings():
+def test_main_app_boots_without_shadowing_app_config_settings(monkeypatch):
     """Rischio identificato in pianificazione T3: un import nudo di `settings`
     (il router) nella riga `from app.routers import ...` di `main.py`
     sovrascriverebbe silenziosamente `from app.config import settings` (riga
@@ -240,8 +240,8 @@ def test_main_app_boots_without_shadowing_app_config_settings():
     Da T5: il lifespan legge `backup_on_startup` via `get_effective`, che apre
     una `SessionLocal` reale puntata al `db_path` di default di
     `app.config.Settings` (`/data/portfolio.db`) -- path che su una macchina di
-    sviluppo locale senza container non esiste. Nessun monkeypatch qui, di
-    proposito: e' la prova che il boot **non dipende** da un DB raggiungibile.
+    sviluppo locale senza container non esiste. Il test non dipende da un DB
+    raggiungibile ne' migrato (vedi patch sotto: engine vuoto, nessuna tabella).
     Fix T5-review (`app/main.py`): la lettura e' avvolta in try/except, stesso
     stile di `_run_startup_backup` (ADR-0018 punto 6) -- se fallisce (file
     irraggiungibile o tabella non ancora migrata), il backup di avvio viene
@@ -249,6 +249,16 @@ def test_main_app_boots_without_shadowing_app_config_settings():
     lettura (`get_effective` non scrive mai), quindi nessun side-effect anche
     nei rari ambienti dove `/data` esistesse davvero."""
     from app import main as main_module
+    from app.services import settings as settings_service
+
+    # Il lifespan usa l'engine di modulo (rebuild FTS) e SessionLocal (get_effective):
+    # senza patch toccherebbero il path di produzione (/data/portfolio.db). Engine vuoto
+    # (nessuna tabella): il boot deve comunque completare, come descritto sopra.
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
+    )
+    monkeypatch.setattr(main_module, "engine", engine)
+    monkeypatch.setattr(settings_service, "SessionLocal", sessionmaker(bind=engine, future=True))
 
     with TestClient(main_module.app) as client:  # trigghera il lifespan (startup)
         resp = client.get("/health")

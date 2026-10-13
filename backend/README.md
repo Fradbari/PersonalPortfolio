@@ -81,12 +81,15 @@ ADR-0026 → ADR-0032). Nessuna riga ancora scritta.
 `chat_sessions` + `chat_messages` (F14). F11 e F13 **non** producono revision.
 
 **Requisito FTS5 (F12).** La migrazione della ricerca full-text richiede un SQLite compilato con
-FTS5. Due guardrail: un check fail-fast all'avvio con errore esplicito se manca, e un **gate
-bloccante prima del merge** del Blocco B — `docker buildx build --platform linux/arm64 --load` e poi
-`SELECT fts5_version();` nel container emulato. Se l'immagine arm64 non avesse FTS5, la migrazione
-fallirebbe al primo `docker compose up` sul Raspberry rompendo il deploy, non solo la ricerca.
-Inoltre: **dopo `POST /backup/restore` l'indice va ricostruito**, perché il restore sovrascrive il
-file DB e l'indice descriverebbe dati che non esistono più.
+FTS5. Guardrail: (1) il `lifespan` rifiuta l'avvio con errore esplicito se l'SQLite in esecuzione
+non ha `ENABLE_FTS5` in `PRAGMA compile_options` (ADR-0029 p.3); (2) **gate bloccante prima del
+merge** del Blocco B — `docker buildx build --platform linux/arm64 --load`, poi nel container
+emulato `PRAGMA compile_options` (deve contenere `ENABLE_FTS5`) + una `CREATE VIRTUAL TABLE ...
+USING fts5(...)` di prova. **Non** usare `SELECT fts5_version()`: non è una funzione SQL reale,
+dà un falso negativo. Se l'immagine arm64 non avesse FTS5, la migrazione fallirebbe al primo
+`docker compose up` sul Raspberry rompendo il deploy, non solo la ricerca.
+L'indice viene ricostruito (`'rebuild'`) **dopo `POST /backup/restore`** (ADR-0034) e **a ogni
+avvio** del backend se la tabella esiste; se manca, `GET /transactions?q=` risponde 503.
 
 ## Approfondimenti
 

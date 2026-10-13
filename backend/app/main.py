@@ -7,9 +7,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.db import engine
 from app.routers import accounts, ai, backup, categories, imports, insights, settings as settings_router, transactions
+from app.services.search import fts_available, rebuild_fts_index, sqlite_has_fts5
 from app.services.settings import get_effective
 
 logger = logging.getLogger(__name__)
@@ -22,8 +25,36 @@ def _run_startup_backup() -> None:
         logger.warning("Backup all'avvio fallito (non bloccante): %s", exc)
 
 
+def _rebuild_fts_on_startup() -> None:
+    # Un restore o un'interruzione possono lasciare l'indice desincronizzato
+    # (ADR-0034 p.5: il messaggio di restore rimanda al riavvio per il rebuild).
+    try:
+        with Session(engine) as session:
+            available = fts_available(session)
+    except Exception as exc:  # l'indice non deve bloccare l'avvio
+        logger.error("Verifica di transactions_fts fallita all'avvio (non bloccante): %s", exc)
+        return
+    if not available:
+        logger.warning(
+            "Tabella transactions_fts assente all'avvio: la ricerca testuale risponde 503 "
+            "finche' il DB non e' migrato a head."
+        )
+        return
+    try:
+        rebuild_fts_index(engine)
+    except Exception as exc:  # l'indice non deve bloccare l'avvio
+        logger.error("Rebuild di transactions_fts all'avvio fallito (non bloccante): %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not sqlite_has_fts5():
+        raise RuntimeError(
+            "La libreria SQLite in esecuzione non e' compilata con FTS5, richiesto dalla "
+            "ricerca testuale (ADR-0029): avvio rifiutato."
+        )
+    _rebuild_fts_on_startup()
+
     # backup_on_startup letto via get_effective (F9, ADR-0027 p.3: DB > env > default)
     # invece che da config.settings direttamente -- letto al boot, coerente con
     # "solo al boot successivo" della whitelist. Nessuna sessione disponibile qui

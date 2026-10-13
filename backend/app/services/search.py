@@ -7,10 +7,22 @@ test punterebbe al DB reale invece che al DB di test (convenzione già seguita d
 `backup.py`)."""
 from __future__ import annotations
 
+import sqlite3
+
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+
+
+def sqlite_has_fts5() -> bool:
+    """True se la libreria SQLite in esecuzione e' compilata con FTS5 (ADR-0029 p.3)."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        options = {row[0] for row in conn.execute("PRAGMA compile_options")}
+    finally:
+        conn.close()
+    return "ENABLE_FTS5" in options
 
 
 def build_match_expression(q: str | None) -> str | None:
