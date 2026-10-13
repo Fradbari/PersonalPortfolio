@@ -80,8 +80,7 @@ giudizio visivo da browser reale confermato dall'utente (7 pannelli leggibili in
 corretto, `--chart-6/7` non collidono, dialog 409 mostra la gemella) — ultimo checkpoint umano del
 blocco.
 **Decisioni del blocco scritte in T1** (invariate salvo l'emendamento CP1 e le due conferme CP1b
-sopra): ADR-0034 nuovo (restore porta il DB a head — **non ancora implementato**, è T15, unico
-pezzo del blocco non ancora fatto oltre a T16) + rettifiche ad ADR-0028 p.5 (ordinale `#n` con
+sopra): ADR-0034 nuovo (restore porta il DB a head — **fatto**, T15) + rettifiche ad ADR-0028 p.5 (ordinale `#n` con
 UNIQUE+retry, **mai** `BEGIN IMMEDIATE` — **fatto**, T7), ADR-0029 p.6 (`group_by` solo subtotali
 — **fatto**, T6), ADR-0030 p.3 (endpoint `/insights/panels` separato — **fatto**, T13), ADR-0026
 (additiva: `--chart-6/7` — **fatto**, T12).
@@ -112,7 +111,8 @@ ADR-0026 → ADR-0033):
   whitelist/blacklist) · ADR-0033 routing (pagina Backup → `/backup-restore`). Spec e piano di
   dettaglio approvati 2026-07-21.
 - **Blocco B** `f11-f12-f13-transactions` — F11 `POST /transactions` manuale · F12 filtri avanzati e
-  FTS5 · F13 dashboard aggiuntive. **Gate bloccante M12.0**: build arm64 + `SELECT fts5_version()`,
+  FTS5 · F13 dashboard aggiuntive. **Gate bloccante M12.0**: build arm64 + `PRAGMA compile_options`
+  (`ENABLE_FTS5`) + virtual table fts5 di prova (mai `SELECT fts5_version()`: non esiste),
   eseguito **come primo task** (go/no-go) e ripetuto prima del merge. Spec e piano di dettaglio
   approvati 2026-07-25; produce **ADR-0034** + rettifiche a 0026/0028/0029/0030.
 - **Blocco C** `f10-f14-drive-chat` — F10 `POST /backup/gdrive-test` (probe write→read→delete) ·

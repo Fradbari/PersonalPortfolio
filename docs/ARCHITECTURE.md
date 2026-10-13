@@ -329,10 +329,11 @@ fissano **al merge**, non alla scrittura — chi mergia per secondo rebasa sulla
   forzatura → due righe; re-import della stessa riga → nessun duplicato aggiuntivo.
 
 **F12 — Filtri avanzati e ricerca full-text** (ADR-0029)
-- **M12.0** **Gate arm64 bloccante**: `docker buildx --platform linux/arm64` + `SELECT
-  fts5_version()` nel container emulato. Se fallisce, il blocco non si mergia.
+- **M12.0** **Gate arm64 bloccante**: `docker buildx --platform linux/arm64` + nel container
+  emulato `PRAGMA compile_options` (`ENABLE_FTS5`) e una `CREATE VIRTUAL TABLE ... USING fts5` di
+  prova (mai `SELECT fts5_version()`: non esiste). Se fallisce, il blocco non si mergia.
 - **M12.1** Tabella virtuale `transactions_fts` + 3 trigger + popolamento; check FTS5 fail-fast
-  all'avvio; **rebuild dell'indice dopo `POST /backup/restore`**.
+  all'avvio + rebuild dell'indice a ogni avvio (`lifespan`); **rebuild dopo `POST /backup/restore`**.
 - **M12.2** Filtri `date_from/date_to/category_id/account/amount_min/amount_max/type/q`;
   `year_month` mantenuto per compatibilità.
 - **M12.3** `group_by=category|month|account` con subtotali, paginazione invariata (ADR-0020).
@@ -692,7 +693,8 @@ Per fase:
   costruzione ma la suite copre solo il path sequenziale (rettifica del criterio originale "due
   richieste concorrenti → `#1` e `#2`, mai un 500", non verificabile con `TestClient` sincrono né
   con la fixture `StaticPool` a connessione unica).
-- **F12**: **gate M12.0 bloccante** (build `linux/arm64` + `SELECT fts5_version()`), eseguito come
+- **F12**: **gate M12.0 bloccante** (build `linux/arm64` + `PRAGMA compile_options`/`ENABLE_FTS5` +
+  virtual table fts5 di prova), eseguito come
   primo task e ripetuto sull'immagine finale; ricerca per parola nel commento; `group_by` che
   restituisce subtotali coerenti ignorando la paginazione; filtri riflessi nell'URL e ripristinati
   al reload; restore di un backup → la ricerca continua a rispondere sui dati ripristinati;

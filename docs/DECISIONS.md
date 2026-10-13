@@ -891,6 +891,10 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
      `SELECT fts5_version();` deve rispondere. Se fallisce, il blocco **non si mergia**: si torna a
      `LIKE` e si riapre la decisione con un nuovo ADR. Non è rimandabile alla sessione-Pi: sarebbe
      scoprire il problema quando è già in produzione.
+     > **Correzione di fatto (2026-10-13), decisione invariata**: `fts5_version()` non è una
+     > funzione SQL reale di SQLite (falso negativo garantito, emerso al gate T0 del Blocco B). Il
+     > metodo di verifica è `PRAGMA compile_options` (deve contenere `ENABLE_FTS5`) + una
+     > `CREATE VIRTUAL TABLE ... USING fts5(...)` di prova con `MATCH` e `'rebuild'`.
   3. **Check fail-fast all'avvio** che l'SQLite in esecuzione abbia FTS5, con errore esplicito se
      assente — stessa logica del gate, applicata a runtime per l'ambiente reale.
   4. **Rebuild dell'indice dopo `POST /backup/restore`**, dentro la stessa procedura che già

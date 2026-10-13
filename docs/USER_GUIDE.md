@@ -178,7 +178,7 @@ La dashboard principale contiene quattro card:
 - **Spesa per categoria** — ripartizione della spesa per categoria (es. Alimentari, Trasporti,
   Casa…), utile per capire dove va la maggior parte del budget.
 - **Trend saldo cumulato** — andamento nel tempo del saldo cumulato mese su mese, per seguire la
-  crescita (o riduzione) del patrimonio nel periodo importato.
+  crescita (o riduzione) del saldo cumulato nel periodo importato.
 - **Saldo per conto** — situazione per singolo conto (es. conto principale, eventuali altri conti
   importati as-is dalle fonti), per sapere quanto è "fermo" su ciascuno.
 
