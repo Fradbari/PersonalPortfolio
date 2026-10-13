@@ -25,6 +25,9 @@ backups/*
 # === Claude Code worktree scratch (isolamento sessioni, non contenuto di progetto) ===
 .claude/worktrees/
 
+# === Stato locale del tool tokensave (non contenuto di progetto) ===
+.tokensave/
+
 # === Python ===
 __pycache__/
 *.py[cod]
