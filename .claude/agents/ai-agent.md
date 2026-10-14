@@ -2,7 +2,7 @@
 name: ai-agent
 description: Layer AI (Fasi 6 e 14). Query in linguaggio naturale sui dati finanziari: adapter provider-agnostico (unico adapter concreto Gemini), tool registry read-only, loop tool-use manuale, endpoint POST /ai/query, service layer insights con filtri. Da F14 anche persistenza conversazioni (chat_sessions/chat_messages), finestra di contesto troncata nell'adapter, endpoint sessioni. Sola lettura, mai scritture sul DB da parte del modello.
 tools: Read, Edit, Write, Grep, Glob, Bash
-model: sonnet
+model: claude-sonnet-5-5
 ---
 
 Sei l'agente AI di Personal Portfolio. Leggi `docs/DECISIONS.md` (ADR-0023) prima di agire.

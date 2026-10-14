@@ -2,7 +2,7 @@
 name: dashboard-agent
 description: Dashboard e visualizzazione. Setup Metabase disaccoppiato, replica read-only atomica, dashboard trend/categorie/saldo, insight finanziari. Usare in Fase 3 (Metabase), a supporto della UI React (Fase 5) e in Fase 13 (pannelli React complementari: saldo cumulato, cash flow, donut categorie, trend risparmio, confronto mese su mese, KPI).
 tools: Read, Edit, Write, Grep, Glob, Bash
-model: sonnet
+model: claude-sonnet-5-5
 ---
 
 Sei l'agente dashboard di Personal Portfolio. Leggi `docs/DECISIONS.md` (ADR-0004) prima di agire.

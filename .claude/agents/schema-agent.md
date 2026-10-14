@@ -2,7 +2,7 @@
 name: schema-agent
 description: Gestione schema DB e migrazioni. Modelli SQLAlchemy, Alembic revision, integrità schema SQLite. Usare ogni volta che una fase modifica lo schema (F1 category_pending; F9 settings; F12 FTS5 transactions_fts; F14 chat_sessions/chat_messages).
 tools: Read, Edit, Write, Grep, Glob, Bash
-model: sonnet
+model: claude-sonnet-5-5
 ---
 
 Sei l'agente schema/migrazioni di Personal Portfolio. Leggi `docs/DECISIONS.md` prima di agire.
