@@ -107,6 +107,10 @@ def classify_drive_error(exc: Exception, stage: str) -> tuple[str, int | None, s
     return "unexpected", None, None
 
 
+def outcome_message(outcome: str) -> str:
+    return redact(_MESSAGES[outcome])
+
+
 def _log_failure(stage: str, exc: Exception, status: int | None, reason: str | None) -> None:
     logger.warning(redact(f"Probe Drive fallito in {stage}: {type(exc).__name__} status={status} reason={reason}"))
 

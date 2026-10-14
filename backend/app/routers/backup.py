@@ -4,6 +4,7 @@
 conferma esplicita). ADR-0018."""
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import threading
@@ -21,7 +22,15 @@ from app.backup import (
 )
 from app.config import settings
 from app.db import engine, refresh_read_only_replica
-from app.drive import apply_drive_retention, get_drive_service, upload_file
+from app.drive import (
+    apply_drive_retention,
+    classify_drive_error,
+    get_drive_service,
+    outcome_message,
+    redact,
+    run_gdrive_probe,
+    upload_file,
+)
 from app.services.search import rebuild_fts_index
 from app.services.settings import get_effective
 
@@ -33,6 +42,9 @@ router = APIRouter(prefix="/backup", tags=["backup"])
 # (`engine.dispose()` + `shutil.copy2` senza protezione). Il lock avvolge tutti e quattro
 # i blocchi nella loro interezza, non i singoli step.
 _restore_lock = threading.Lock()
+
+# Un solo probe Drive alla volta (ADR-0031): scrive davvero sul Drive dell'utente.
+_probe_lock = threading.Lock()
 
 
 def run_backup() -> dict:
@@ -65,8 +77,9 @@ def run_backup() -> dict:
             drive_uploaded = True
             drive_deleted = apply_drive_retention(service, settings.gdrive_backup_folder_id, backup_retention)
     except Exception as exc:  # SA malformata/rete/permessi Drive: best-effort (ADR-0004/ADR-0018)
-        drive_error = str(exc)
-        logger.warning("Backup Drive fallito (non bloccante): %s", exc)
+        outcome, status, _reason = classify_drive_error(exc, "write")
+        drive_error = outcome_message(outcome)
+        logger.warning(redact(f"Backup Drive fallito (non bloccante): {outcome} {type(exc).__name__} status={status}"))
 
     local_deleted = apply_local_retention(settings.backup_dir, backup_retention)
 
@@ -84,6 +97,17 @@ def run_backup() -> dict:
 @router.post("")
 def backup_now():
     return run_backup()
+
+
+@router.post("/gdrive-test")
+def gdrive_test():
+    if not _probe_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Test di connessione già in corso.")
+    try:
+        result = run_gdrive_probe(settings.google_sa_key_path, settings.gdrive_backup_folder_id)
+    finally:
+        _probe_lock.release()
+    return dataclasses.asdict(result)
 
 
 @router.get("")
