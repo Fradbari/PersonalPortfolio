@@ -155,13 +155,47 @@ def test_folder_id_missing_zero_calls(monkeypatch, sa_path):
         ("create", httplib2.ServerNotFoundError(f"Unable to find {FOLDER}"), "network_error", "write"),
         ("create", ConnectionError(FOLDER), "network_error", "write"),
         ("create", RuntimeError(FOLDER), "unexpected", "write"),
+        ("create", PermissionError(FOLDER), "unexpected", "write"),
         ("get_media", http_error(404, "notFound"), "unexpected", "read"),
     ],
 )
-def test_error_outcomes_and_no_leak(monkeypatch, sa_path, op, exc, outcome, stage):
+def test_error_outcomes_and_no_leak(monkeypatch, sa_path, caplog, op, exc, outcome, stage):
     fake = FakeDrive(fail={op: exc})
-    res = probe(monkeypatch, sa_path, fake)
+    with caplog.at_level("DEBUG"):
+        res = probe(monkeypatch, sa_path, fake)
     assert (res.outcome, res.stage, res.ok) == (outcome, stage, False)
+    assert_clean(res, sa_path)
+    assert FOLDER not in caplog.text
+    assert sa_path not in caplog.text and SA_NAME not in caplog.text
+
+
+def test_get_drive_service_unexpected_error_is_redacted(monkeypatch, sa_path, caplog):
+    def boom(_p):
+        raise PermissionError(f"denied: {sa_path}")
+
+    monkeypatch.setattr(drive, "get_drive_service", boom)
+    with caplog.at_level("DEBUG"):
+        res = run_gdrive_probe(sa_path, FOLDER)
+    assert (res.outcome, res.stage) == ("unexpected", "config")
+    assert_clean(res, sa_path)
+    assert sa_path not in caplog.text and SA_NAME not in caplog.text
+
+
+def test_get_drive_service_none_is_sa_missing(monkeypatch, sa_path):
+    monkeypatch.setattr(drive, "get_drive_service", lambda _p: None)
+    res = run_gdrive_probe(sa_path, FOLDER)
+    assert (res.outcome, res.stage) == ("sa_missing", "config")
+
+
+def test_sa_invalid_precedes_folder_id_missing(monkeypatch, tmp_path):
+    bad = tmp_path / "bad.json"
+    bad.write_text("non json {")
+    assert run_gdrive_probe(str(bad), "").outcome == "sa_invalid"
+
+
+def test_google_reason_with_folder_id_is_redacted(monkeypatch, sa_path):
+    res = probe(monkeypatch, sa_path, FakeDrive(fail={"create": http_error(403, FOLDER)}))
+    assert res.google_reason == "<gdrive_backup_folder_id>"
     assert_clean(res, sa_path)
 
 

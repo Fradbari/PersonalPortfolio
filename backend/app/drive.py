@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import socket
 import tempfile
 import time
 from dataclasses import dataclass
@@ -101,7 +102,7 @@ def classify_drive_error(exc: Exception, stage: str) -> tuple[str, int | None, s
         return "sa_auth_failed", None, None
     if isinstance(exc, TimeoutError):
         return "timeout", None, None
-    if isinstance(exc, (httplib2.ServerNotFoundError, OSError)):
+    if isinstance(exc, (httplib2.ServerNotFoundError, ConnectionError, socket.gaierror)):
         return "network_error", None, None
     return "unexpected", None, None
 
@@ -134,6 +135,9 @@ def run_gdrive_probe(sa_key_path: str, folder_id: str) -> ProbeResult:
         service = get_drive_service(sa_key_path)
     except (ValueError, KeyError, TypeError):
         return result("sa_invalid", "config")
+    except Exception as exc:
+        _log_failure("config", exc, None, None)
+        return result("unexpected", "config")
     if service is None:
         return result("sa_missing", "config")
     if not folder_id:
@@ -143,7 +147,8 @@ def run_gdrive_probe(sa_key_path: str, folder_id: str) -> ProbeResult:
     error: tuple[str, str, int | None, str | None] | None = None
     file_id: str | None = None
     try:
-        query = f"name contains '{PROBE_PREFIX}' and '{folder_id}' in parents"
+        safe_folder = folder_id.replace("'", "\\'")
+        query = f"name contains '{PROBE_PREFIX}' and '{safe_folder}' in parents"
         orphans = service.files().list(q=query, fields="files(id, name)").execute().get("files", [])
         for orphan in orphans:
             if orphan["name"].startswith(PROBE_PREFIX):
