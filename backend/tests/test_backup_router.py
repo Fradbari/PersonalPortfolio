@@ -229,9 +229,9 @@ def test_restore_runs_migrations_and_reports_applied(tmp_path, monkeypatch):
 
     assert resp.status_code == 200
     body = resp.json()
-    # 0002 -> head = 0003, 0004, 0005 (catena lineare corrente). Se una migration futura
+    # 0002 -> head = 0003, 0004, 0005, 0006 (catena lineare corrente). Se una migration futura
     # venisse aggiunta, questo valore cambia: e' un segnale voluto, non un test fragile.
-    assert body["migrations_applied"] == 3
+    assert body["migrations_applied"] == 4
     assert "schema_note" in body
 
     live_db_path = tmp_path / "live.db"
@@ -241,6 +241,38 @@ def test_restore_runs_migrations_and_reports_applied(tmp_path, monkeypatch):
         assert version == _head_revision()
         # la tabella `settings`, assente nel backup 0002, esiste dopo l'upgrade
         conn.execute("SELECT 1 FROM settings LIMIT 0")
+    finally:
+        conn.close()
+
+
+def test_restore_from_0005_backup_creates_empty_chat_tables(tmp_path, monkeypatch):
+    """D3: backup pre-F14 (0005) restaurato -> head, tabelle chat vuote, dati intatti."""
+    client, _engine = _build_test_app(tmp_path, monkeypatch)
+    backup_dir = tmp_path / "backups"
+    filename = _make_backup_at_revision(backup_dir, "0005", "20200102_000000")
+    bconn = sqlite3.connect(backup_dir / filename)
+    try:
+        bconn.execute(
+            "INSERT INTO transactions (date, amount, currency, type, category_raw, account, source, hash_dedup) "
+            "VALUES ('2026-02-01', 5.0, 'EUR', 'expense', 'Bkp', 'principale', 'my_finance', 'hbackup')"
+        )
+        bconn.commit()
+    finally:
+        bconn.close()
+
+    resp = client.post("/backup/restore", json={"filename": filename, "confirm": True})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["migrations_applied"] >= 1
+    assert "schema_note" in body
+
+    conn = sqlite3.connect(tmp_path / "live.db")
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == _head_revision()
+        assert conn.execute("SELECT COUNT(*) FROM chat_sessions").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM transactions WHERE hash_dedup='hbackup'").fetchone()[0] == 1
     finally:
         conn.close()
 
