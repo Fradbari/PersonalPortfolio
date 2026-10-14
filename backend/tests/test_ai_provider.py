@@ -101,7 +101,7 @@ def test_gemini_provider_direct_construction_also_validates_config(monkeypatch):
 
 
 class _FakeProvider(AIProvider):
-    def answer(self, question: str, session) -> AIAnswer:
+    def answer(self, question, session, history=None) -> AIAnswer:
         return AIAnswer(
             text="risposta finta",
             tool_calls=[ToolCall(name="get_accounts", args={}, result_summary="2 conti")],

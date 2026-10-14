@@ -23,7 +23,14 @@ import json
 from datetime import datetime
 from typing import Any, Callable
 
-from app.ai.provider import AIAnswer, AIProvider, AIProviderError, AIProviderNotConfigured, ToolCall
+from app.ai.provider import (
+    AIAnswer,
+    AIProvider,
+    AIProviderError,
+    AIProviderNotConfigured,
+    ChatTurn,
+    ToolCall,
+)
 from app.ai.tools import TOOLS, tool_declarations
 from app.config import settings
 
@@ -94,12 +101,26 @@ class GeminiProvider(AIProvider):
 
         return genai.Client(api_key=settings.ai_api_key)
 
-    def answer(self, question: str, session) -> AIAnswer:
+    @staticmethod
+    def _history_steps(history: list[ChatTurn]) -> list[dict]:
+        return [
+            {
+                "type": "user_input" if turn.role == "user" else "model_output",
+                "content": [{"type": "text", "text": turn.content}],
+            }
+            for turn in history
+        ]
+
+    def answer(self, question: str, session, history: list[ChatTurn] | None = None) -> AIAnswer:
         client = self._client_factory()
         gemini_tools = [{"type": "function", **decl} for decl in tool_declarations()]
 
         tool_calls: list[ToolCall] = []
         current_input: Any = question
+        if history:
+            current_input = self._history_steps(history) + [
+                {"type": "user_input", "content": [{"type": "text", "text": question}]}
+            ]
         previous_interaction_id: str | None = None
         last_text = ""
 

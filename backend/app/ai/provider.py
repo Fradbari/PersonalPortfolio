@@ -43,12 +43,18 @@ class AIProviderNotConfigured(AIProviderError):
     crash dell'app (ADR-0018 p.3, ADR-0023 p.8)."""
 
 
+@dataclass
+class ChatTurn:
+    role: str  # "user" | "assistant"
+    content: str
+
+
 class AIProvider(ABC):
     @abstractmethod
-    def answer(self, question: str, session) -> AIAnswer:
+    def answer(self, question: str, session, history: list[ChatTurn] | None = None) -> AIAnswer:
         """Risponde alla domanda in linguaggio naturale usando solo i tool
-        read-only del registry (`app.ai.tools`). Stateless: nessuna memoria tra
-        chiamate (ADR-0023 p.6)."""
+        read-only del registry (`app.ai.tools`). `history` e' la conversazione
+        precedente (ADR-0032); None/vuota = domanda senza memoria."""
         ...
 
 
