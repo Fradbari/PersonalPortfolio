@@ -57,33 +57,34 @@ pytest
 - **Nessun tool di scrittura esposto al modello AI** (ADR-0023/0032): la persistenza delle
   conversazioni è scritta dal router, mai da un tool.
 
-## In arrivo con F8-F14
+## Roadmap F8-F14: stato
 
 Pianificato il 2026-07-21 (spec
 [../docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md](../docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md),
-ADR-0026 → ADR-0032). Nessuna riga ancora scritta.
+ADR-0026 → ADR-0034). F8-F9 e F11-F13 implementate; restano F10 e F14 (Blocco C).
 
-**Endpoint nuovi**
+**Endpoint**
 
 | Endpoint | Fase | Nota |
 |---|---|---|
-| `GET` / `PUT /settings` | F9 | solo chiavi in whitelist; i secret escono come `{configured: bool}`, mai come valore |
-| `POST /transactions` | F11 | oggi **non esiste**: le transazioni entrano solo da import. `source='manual'`, `import_batch_id=NULL` |
-| `POST /backup/gdrive-test` | F10 | probe reale write→read→delete; credenziali lette da `config.py`, mai dal body né in risposta |
-| `GET /ai/sessions`, `GET /ai/sessions/{id}` | F14 | elenco e messaggi delle conversazioni |
-| `DELETE /ai/sessions/{id}` | F14 | una sola conversazione, senza conferma |
-| `DELETE /ai/sessions` | F14 | azzera tutto lo storico, `confirm: true` obbligatorio |
+| `GET` / `PUT /settings` | F9 (fatto) | solo chiavi in whitelist; i secret escono come `{configured: bool}`, mai come valore |
+| `POST /transactions` | F11 (fatto) | inserimento manuale: `source='manual'`, `import_batch_id=NULL` |
+| `POST /backup/gdrive-test` | F10 (da fare) | probe reale write→read→delete; credenziali lette da `config.py`, mai dal body né in risposta |
+| `GET /ai/sessions`, `GET /ai/sessions/{id}` | F14 (da fare) | elenco e messaggi delle conversazioni |
+| `DELETE /ai/sessions/{id}` | F14 (da fare) | una sola conversazione, senza conferma |
+| `DELETE /ai/sessions` | F14 (da fare) | azzera tutto lo storico, `confirm: true` obbligatorio |
 
-`GET /transactions` guadagna in F12 i filtri `date_from`, `date_to`, `amount_min`, `amount_max`,
+`GET /transactions` ha dal Blocco B (F12) i filtri `date_from`, `date_to`, `amount_min`, `amount_max`,
 `q` (full-text) e `group_by`; `year_month` resta per compatibilità.
 
-**Migrazioni previste** — `settings` key/value (F9) · `transactions_fts` FTS5 + 3 trigger (F12) ·
-`chat_sessions` + `chat_messages` (F14). F11 e F13 **non** producono revision.
+**Migrazioni** — `settings` key/value (F9, 0003) · indici `transactions` (F12, 0004) ·
+`transactions_fts` FTS5 + 3 trigger (F12, 0005) · prevista `chat_sessions` + `chat_messages` (F14,
+0006 su 0005). F10, F11 e F13 **non** producono revision.
 
 **Requisito FTS5 (F12).** La migrazione della ricerca full-text richiede un SQLite compilato con
 FTS5. Guardrail: (1) il `lifespan` rifiuta l'avvio con errore esplicito se l'SQLite in esecuzione
-non ha `ENABLE_FTS5` in `PRAGMA compile_options` (ADR-0029 p.3); (2) **gate bloccante prima del
-merge** del Blocco B — `docker buildx build --platform linux/arm64 --load`, poi nel container
+non ha `ENABLE_FTS5` in `PRAGMA compile_options` (ADR-0029 p.3); (2) gate arm64 eseguito prima del
+merge del Blocco B (GO) — `docker buildx build --platform linux/arm64 --load`, poi nel container
 emulato `PRAGMA compile_options` (deve contenere `ENABLE_FTS5`) + una `CREATE VIRTUAL TABLE ...
 USING fts5(...)` di prova. **Non** usare `SELECT fts5_version()`: non è una funzione SQL reale,
 dà un falso negativo. Se l'immagine arm64 non avesse FTS5, la migrazione fallirebbe al primo
@@ -98,8 +99,9 @@ avvio** del backend se la tabella esiste; se manca, `GET /transactions?q=` rispo
 - Guida avvio: [../docs/GETTING_STARTED.md](../docs/GETTING_STARTED.md)
 - Guida funzionale endpoint: [../docs/USER_GUIDE.md](../docs/USER_GUIDE.md)
 
-## Stato fase corrente (2026-07-21)
+## Stato fase corrente (2026-10-14)
 
-F0-F6 + F-DEBT completate. **F7 ◐ parcheggiata in attesa hardware, non bloccante per F8+.**
-**Fase corrente: Blocco A (F8 dark mode + F9 settings)** — nessun codice F8-F14 ancora scritto.
+F0-F6 + F-DEBT completate. **F7 ◐ parcheggiata in attesa hardware, non bloccante.**
+Blocchi A (F8-F9) e B (F11-F13) chiusi e mergiati su `master` (B = `ab9c360`).
+**Fase corrente: Blocco C NON avviato** (F10 backup GDrive + F14 storicità chat AI).
 Dettagli: [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).

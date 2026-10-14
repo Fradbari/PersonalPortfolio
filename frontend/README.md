@@ -5,22 +5,23 @@ pending, Conti, Backup, Assistente AI). In produzione **non gira standalone**: v
 (`vite build`) e servita dal container FastAPI (`backend/`) sulla stessa porta 8000 — vedi
 [ADR-0019](../docs/DECISIONS.md). La porta 5173 sotto è solo per sviluppo locale (`npm run dev`).
 
-## Stato fase corrente (2026-07-21)
+## Stato fase corrente (2026-10-14)
 F5 (questa UI) completata. F0-F6 + F-DEBT completate; F7 (Raspberry Pi arm64) ◐ parcheggiata in
-attesa hardware. **Fase corrente: Blocco A (F8 dark mode + F9 settings)** — nessun codice F8-F14
-ancora scritto. Guida funzionale utente: [../docs/USER_GUIDE.md](../docs/USER_GUIDE.md). Guida
+attesa hardware. Blocchi A (F8-F9) e B (F11-F13) chiusi e mergiati su `master`. **Fase corrente:
+Blocco C NON avviato** (F10 backup GDrive + F14 chat AI). Guida funzionale utente:
+[../docs/USER_GUIDE.md](../docs/USER_GUIDE.md). Guida
 avvio: [../docs/GETTING_STARTED.md](../docs/GETTING_STARTED.md).
 
-## In arrivo con F8-F13
+## Implementato con F8-F13
 
 Pianificato il 2026-07-21 (spec
 [../docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md](../docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md),
-ADR-0026 → ADR-0032).
+ADR-0026 → ADR-0032), ora implementato.
 
-**Sistema di temi (F8, ADR-0026).** Oggi il tema scuro non esiste per niente: `tailwind.config.js`
-non dichiara `darkMode`, `index.css` è tre righe senza una sola CSS variable, e ci sono 31 classi
-colore hardcoded su 11 file più 5 esadecimali passati a Recharts in `pages/Dashboard.tsx`. Il
-lavoro previsto:
+**Sistema di temi (F8, ADR-0026).** Prima di F8 il tema scuro non esisteva: `tailwind.config.js`
+non dichiarava `darkMode`, `index.css` era di tre righe senza una sola CSS variable, e c'erano 31
+classi colore hardcoded su 11 file più 5 esadecimali passati a Recharts in `pages/Dashboard.tsx`.
+Il lavoro svolto:
 
 - `darkMode: 'class'` e token semantici in `src/index.css` (`:root` + `.dark`, formato **HSL
   triplo**, sintassi Tailwind v3): `--background`, `--foreground`, `--card`, `--muted`, `--border`,

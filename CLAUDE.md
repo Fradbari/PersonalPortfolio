@@ -42,48 +42,26 @@ F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico 
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64 ·
 **F8-F14 roadmap in 3 blocchi**.
 
-**Fase corrente: BLOCCO B — F11 manuale + F12 filtri/FTS5 + F13 dashboard, APERTO.** Branch
-`f11-f12-f13-transactions` creato da `master` `1a283e4` il 2026-07-25. **T0-T16 fatti e
-review-approvati, CP1/CP1b/CP2 superati** (vedi sotto); resta solo la review finale whole-branch
-→ merge. Le modifiche T15/T16 sono nel working tree, non ancora committate (HEAD `0092227`, 12
-commit precedenti già fatti). **245 test backend verdi**, `alembic heads` = 1 riga (`0005`).
+**Fase corrente: BLOCCO C NON AVVIATO** (F10 backup GDrive + test · F14 storicità chat AI, branch
+previsto `f10-f14-drive-chat`). Prossimo passo: spec di dettaglio + piano del Blocco C, con
+approvazione utente prima di scrivere codice. Ripartire dal "Prompt di ripresa" in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+**Blocco B chiuso e mergiato su `master`** (F11 manuale + F12 filtri/FTS5 + F13 dashboard).
+Branch `f11-f12-f13-transactions` (T0-T16, CP1/CP1b/CP2 superati, review finale whole-branch con
+0 Critical) mergiato con `ab9c360` il 2026-10-14, `--no-ff`, storia invariata. Post-merge su
+`master`: **252 test backend verdi**, `alembic heads` = 1 riga (`0005`). **Gate arm64 GO
+sull'immagine finale** (`pp-backend:arm64-verify`, HEAD `19ad2f7`): container di produzione su DB
+vuoto scratch → alembic 0001→0005, `/health` 200 `phase:"13"`, `0.1.0-phase13` in OpenAPI,
+`ENABLE_FTS5` presente; con `transactions_fts` assente l'avvio logga il warning e non crasha.
+Ledger archiviato in `.superpowers/sdd-archive-blocco-b/`; dettaglio nel piano e nello spec del
+blocco:
 - spec: [docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md](docs/superpowers/specs/2026-07-25-f11-f12-f13-detail-spec.md)
-- piano: [docs/superpowers/plans/f11-f12-f13-implementation-plan.md](docs/superpowers/plans/f11-f12-f13-implementation-plan.md) (T0-T16, brief per task)
-- ledger: `.superpowers/sdd/progress.md` — **sezione "STATO PER RIPRESA" in cima**: contratto
-  congelato da CP1/CP1b, due bug trovati nel testo del piano (non nel progetto, entrambi
-  verificati empiricamente), T4 assorbito da T3, dettaglio review T8-T14 (Important trovati e
-  corretti su T8/T10/T11/T14, Minor accumulati da triagiare alla review finale whole-branch).
-  Leggerla prima di riprendere. (Blocco A archiviato in `.superpowers/sdd-archive-blocco-a/`)
-
-**Prossimo passo: review finale whole-branch** (il reviewer più capace disponibile) →
-superpowers:finishing-a-development-branch (commit T15/T16 + merge). **T15 fatto** (ADR-0034,
-2026-09-05): `POST /backup/restore` = copia → `upgrade_schema_to_head()` (`command.upgrade`+`NullPool`
-in `backup.py`) → `rebuild_fts_index` → refresh replica, 4 try/except distinti in un `threading.Lock`,
-body `migrations_applied:N`+`schema_note`; chiude D5 (ultimo difetto aperto). Footgun evitato:
-`_alembic_config()` NON passa `alembic.ini` (altrimenti `fileConfig(disable_existing_loggers=True)`
-silenzierebbe i logger dell'app a ogni restore). **T16 fatto**: version/phase→13 + test dedicato,
-grep `patrimon` (post `git add -A`) = 0, `alembic heads` = 1 (0005), round-trip upgrade/downgrade
-0002 OK, gate FTS5 arm64 (base image `python:3.12-slim`) GO. Il build completo dell'immagine di
-produzione arm64 sotto QEMU non è stato rieseguito (solo Python cambiato, superficie FTS5/arm64
-invariata) — opzionale prima del merge.
-
-Checkpoint umani: **CP1 superato** dopo T7 (contratto transazioni) — l'utente ha corretto la
-soglia data-futura da rifiuto secco (422) a flusso di conferma (409 `reason:"future_date"` +
-`confirm_future_date:true`, stessa meccanica del duplicato `reason:"duplicate"`; terzo
-`reason:"ordinal_exhausted"`); rettifica scritta in ADR-0028. **CP1b superato** dopo T13 —
-verifica dal vivo del controller su copia scratch del DB reale (numeri esatti contro i totali
-noti F2) più due punti che il contratto congelato non decideva alla lettera, **confermati
-esplicitamente dall'utente**: `month_over_month` ignora la finestra `months`/`date_from` di
-default (resta ancorato all'ultimo mese con dati reali, verificato empiricamente: giugno, non il
-mese corrente) ed è solo-uscite come `category_donut`. **CP2 superato** (2026-09-04) dopo T14:
-giudizio visivo da browser reale confermato dall'utente (7 pannelli leggibili in dark, wording
-corretto, `--chart-6/7` non collidono, dialog 409 mostra la gemella) — ultimo checkpoint umano del
-blocco.
-**Decisioni del blocco scritte in T1** (invariate salvo l'emendamento CP1 e le due conferme CP1b
-sopra): ADR-0034 nuovo (restore porta il DB a head — **fatto**, T15) + rettifiche ad ADR-0028 p.5 (ordinale `#n` con
-UNIQUE+retry, **mai** `BEGIN IMMEDIATE` — **fatto**, T7), ADR-0029 p.6 (`group_by` solo subtotali
-— **fatto**, T6), ADR-0030 p.3 (endpoint `/insights/panels` separato — **fatto**, T13), ADR-0026
-(additiva: `--chart-6/7` — **fatto**, T12).
+- piano: [docs/superpowers/plans/f11-f12-f13-implementation-plan.md](docs/superpowers/plans/f11-f12-f13-implementation-plan.md)
+- ADR del blocco: ADR-0034 (restore porta il DB a head) + rettifiche ad ADR-0026/0028/0029/0030.
+- Footgun da non reintrodurre: `_alembic_config()` in `backup.py` NON passa `alembic.ini` a
+  `Config` (altrimenti `fileConfig(disable_existing_loggers=True)` silenzia i logger dell'app a
+  ogni restore).
 
 **Blocco A chiuso, mergiato e pushato su `origin/master`.** Branch `f8-f9-theme-settings` (T0-T14,
 3/3 checkpoint, review finale whole-branch con 2 Important corretti) mergiato con `bcbdb18` il
@@ -106,16 +84,16 @@ all'arrivo del Pi, con i punti aperti P1-P4 registrati in ARCHITECTURE.md.
 **Roadmap F8-F14** (pianificata 2026-07-21, spec
 [docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md](docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md),
 ADR-0026 → ADR-0033):
-- **Blocco A** `f8-f9-theme-settings` — F8 dark mode (token semantici CSS, Tailwind v3 `class`,
+- **Blocco A** (chiuso) `f8-f9-theme-settings` — F8 dark mode (token semantici CSS, Tailwind v3 `class`,
   chartConfig condiviso) · F9 endpoint `/settings` + pagina `/impostazioni` (tabella key/value,
   whitelist/blacklist) · ADR-0033 routing (pagina Backup → `/backup-restore`). Spec e piano di
   dettaglio approvati 2026-07-21.
-- **Blocco B** `f11-f12-f13-transactions` — F11 `POST /transactions` manuale · F12 filtri avanzati e
+- **Blocco B** (chiuso, `ab9c360`) `f11-f12-f13-transactions` — F11 `POST /transactions` manuale · F12 filtri avanzati e
   FTS5 · F13 dashboard aggiuntive. **Gate bloccante M12.0**: build arm64 + `PRAGMA compile_options`
   (`ENABLE_FTS5`) + virtual table fts5 di prova (mai `SELECT fts5_version()`: non esiste),
-  eseguito **come primo task** (go/no-go) e ripetuto prima del merge. Spec e piano di dettaglio
+  eseguito **come primo task** (go/no-go) e ripetuto prima del merge (GO). Spec e piano di dettaglio
   approvati 2026-07-25; produce **ADR-0034** + rettifiche a 0026/0028/0029/0030.
-- **Blocco C** `f10-f14-drive-chat` — F10 `POST /backup/gdrive-test` (probe write→read→delete) ·
+- **Blocco C** (non avviato) `f10-f14-drive-chat` — F10 `POST /backup/gdrive-test` (probe write→read→delete) ·
   F14 storicità chat AI (`chat_sessions`/`chat_messages`, modello sempre read-only).
 
 Ordine vincolante: **A prima di B**. C è indipendente funzionalmente, **non** nella catena Alembic.
