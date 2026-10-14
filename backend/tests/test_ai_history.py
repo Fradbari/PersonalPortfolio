@@ -188,3 +188,26 @@ def test_gemini_adapter_first_create_has_no_previous_interaction_id_with_history
     with Session() as session:
         provider.answer("domanda", session, history=_turn_objs())
     assert "previous_interaction_id" not in client.interactions.calls[0]
+
+def test_router_unknown_session_id_returns_404_without_calling_provider():
+    Session = _memory_session_factory()
+
+    def override_get_session():
+        db = Session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    fake = _RecordingProvider()
+    app = FastAPI()
+    app.include_router(ai_router.router)
+    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[ai_router.get_ai_provider] = lambda: fake
+    client = TestClient(app)
+
+    resp = client.post("/ai/query", json={"question": "ciao", "session_id": 999})
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Conversazione non trovata."
+    assert fake.calls == 0

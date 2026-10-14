@@ -22,10 +22,18 @@ from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.provider import AIProvider, AIProviderError, AIProviderNotConfigured, get_provider
+from app.ai.provider import (
+    AIProvider,
+    AIProviderError,
+    AIProviderNotConfigured,
+    ChatTurn,
+    get_provider,
+)
 from app.db import get_session
+from app.models import ChatMessage, ChatSession
 
 router = APIRouter(tags=["ai"])
 
@@ -57,6 +65,7 @@ def get_ai_provider() -> AIProvider:
 
 class QueryRequest(BaseModel):
     question: str
+    session_id: int | None = None
 
     @field_validator("question")
     @classmethod
@@ -72,8 +81,19 @@ def query(
     provider: AIProvider = Depends(get_ai_provider),
     session: Session = Depends(get_session),
 ):
+    history: list[ChatTurn] = []
+    if body.session_id is not None:
+        if session.get(ChatSession, body.session_id) is None:
+            raise HTTPException(status_code=404, detail="Conversazione non trovata.")
+        rows = session.scalars(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == body.session_id)
+            .order_by(ChatMessage.created_at, ChatMessage.id)
+        ).all()
+        history = [ChatTurn(role=m.role, content=m.content) for m in rows]
+
     try:
-        answer = provider.answer(body.question, session)
+        answer = provider.answer(body.question, session, history=history)
     except AIProviderError as exc:
         _raise_http_for(exc)
 
