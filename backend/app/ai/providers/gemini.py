@@ -33,6 +33,7 @@ from app.ai.provider import (
 )
 from app.ai.tools import TOOLS, tool_declarations
 from app.config import settings
+from app.services.settings import get_effective
 
 SYSTEM_PROMPT = (
     "Sei un assistente per l'analisi delle finanze personali dell'utente. Rispondi "
@@ -118,9 +119,15 @@ class GeminiProvider(AIProvider):
         tool_calls: list[ToolCall] = []
         current_input: Any = question
         if history:
-            current_input = self._history_steps(history) + [
-                {"type": "user_input", "content": [{"type": "text", "text": question}]}
-            ]
+            max_turns = get_effective("ai_history_max_turns", session)[0]
+            if max_turns <= 0:
+                window: list[ChatTurn] = []
+            else:
+                window = history[-2 * max_turns :]
+            if window:
+                current_input = self._history_steps(window) + [
+                    {"type": "user_input", "content": [{"type": "text", "text": question}]}
+                ]
         previous_interaction_id: str | None = None
         last_text = ""
 

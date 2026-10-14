@@ -15,7 +15,7 @@ import app.ai.providers.gemini as gemini_module
 from app.ai.provider import AIAnswer, AIProvider
 from app.ai.providers.gemini import GeminiProvider
 from app.db import Base, get_session
-from app.models import ChatMessage, ChatSession
+from app.models import ChatMessage, ChatSession, Settings
 from app.routers import ai as ai_router
 
 
@@ -125,3 +125,66 @@ def test_gemini_adapter_truncates_history_before_provider_call(monkeypatch):
     ]
     assert steps[12] == {"type": "user_input", "content": [{"type": "text", "text": "e il mese prima?"}]}
     assert "previous_interaction_id" not in first
+
+
+def _adapter_with_client(monkeypatch):
+    monkeypatch.setattr(gemini_module.settings, "ai_api_key", "test-key")
+    monkeypatch.setattr(gemini_module.settings, "ai_model", "gemini-3.1-flash-lite")
+
+    class _Interactions:
+        def __init__(self):
+            self.calls = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return SimpleNamespace(id="i-1", output_text="risposta", steps=[])
+
+    client = SimpleNamespace(interactions=_Interactions())
+    return GeminiProvider(client_factory=lambda: client), client
+
+
+def _memory_session_factory():
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
+    )
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine, future=True)
+
+
+def _turn_objs():
+    return [SimpleNamespace(role=role, content=content) for role, content in _turns()]
+
+
+def test_gemini_adapter_cap_zero_or_negative_sends_no_history(monkeypatch):
+    for raw in ("0", "-1"):
+        provider, client = _adapter_with_client(monkeypatch)
+        Session = _memory_session_factory()
+        with Session() as session:
+            session.add(Settings(key="ai_history_max_turns", value=raw))
+            session.commit()
+            provider.answer("domanda", session, history=_turn_objs())
+        first = client.interactions.calls[0]
+        assert first["input"] == "domanda"
+        assert "previous_interaction_id" not in first
+
+
+def test_gemini_adapter_empty_history_does_not_read_cap(monkeypatch):
+    provider, client = _adapter_with_client(monkeypatch)
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("cap letto con history vuota")
+
+    monkeypatch.setattr(gemini_module, "get_effective", _boom)
+    Session = _memory_session_factory()
+    with Session() as session:
+        provider.answer("domanda", session, history=[])
+        provider.answer("domanda", session, history=None)
+    assert [c["input"] for c in client.interactions.calls] == ["domanda", "domanda"]
+
+
+def test_gemini_adapter_first_create_has_no_previous_interaction_id_with_history(monkeypatch):
+    provider, client = _adapter_with_client(monkeypatch)
+    Session = _memory_session_factory()
+    with Session() as session:
+        provider.answer("domanda", session, history=_turn_objs())
+    assert "previous_interaction_id" not in client.interactions.calls[0]
