@@ -1,15 +1,18 @@
 import os
+import sqlite3
 from datetime import datetime
 
+from alembic.script import ScriptDirectory
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.db import Base
+from app.backup import _alembic_config
 from app.models import Settings, Transaction
 from app.routers import backup as backup_router
 from app.services import settings as settings_service
+from conftest import run_alembic_upgrade
 
 
 def _build_test_app(tmp_path, monkeypatch):
@@ -17,8 +20,14 @@ def _build_test_app(tmp_path, monkeypatch):
     backup_dir = tmp_path / "backups"
     backup_dir.mkdir()
 
+    # DB live costruito con le migration Alembic reali (non `Base.metadata.create_all`):
+    # il backup che ne deriva porta `alembic_version` a head, cosi' il restore -> upgrade
+    # e' un no-op verificabile (0 migration) invece di ritentare 0001 da zero su tabelle
+    # gia' esistenti. Necessario da T15 (ADR-0034): `POST /backup/restore` ora fa girare
+    # `alembic upgrade head` dopo la copia.
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False}, future=True)
-    Base.metadata.create_all(engine)
+    with engine.connect() as connection:
+        run_alembic_upgrade(connection)
     Session = sessionmaker(bind=engine, future=True)
     with Session() as session:
         session.add(
@@ -183,3 +192,112 @@ def test_run_backup_drive_retention_uses_db_value_over_config_default(tmp_path, 
     body = resp.json()
     assert body["drive_uploaded"] is True
     assert captured["retention"] == 1
+
+
+# --- T15: POST /backup/restore porta il DB a head (ADR-0034) ---
+
+
+def _make_backup_at_revision(backup_dir, revision, ts):
+    """Crea un file di backup valido migrato ad `revision` con Alembic (non a head):
+    simula un backup fatto in una fase precedente del progetto."""
+    filename = f"portfolio_backup_{ts}.db"
+    path = backup_dir / filename
+    eng = create_engine(f"sqlite:///{path}", future=True)
+    try:
+        with eng.connect() as connection:
+            run_alembic_upgrade(connection, revision)
+    finally:
+        eng.dispose()
+    return filename
+
+
+def _head_revision() -> str:
+    return ScriptDirectory.from_config(_alembic_config()).get_current_head()
+
+
+def test_restore_runs_migrations_and_reports_applied(tmp_path, monkeypatch):
+    """D5 (chiuso da T15): un backup pre-`settings` (schema 0002) restaurato viene
+    portato a head. Dopo la copia + upgrade la tabella `settings` esiste, `version_num`
+    sul file di `settings.db_path` e' la head, e il body dichiara le migration applicate
+    (assertion sul DB, non solo sul body -- altrimenti un 200 con schema fermo passerebbe
+    inosservato, criterio T15 test #2)."""
+    client, _engine = _build_test_app(tmp_path, monkeypatch)
+    backup_dir = tmp_path / "backups"
+    filename = _make_backup_at_revision(backup_dir, "0002", "20200101_000000")
+
+    resp = client.post("/backup/restore", json={"filename": filename, "confirm": True})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    # 0002 -> head = 0003, 0004, 0005 (catena lineare corrente). Se una migration futura
+    # venisse aggiunta, questo valore cambia: e' un segnale voluto, non un test fragile.
+    assert body["migrations_applied"] == 3
+    assert "schema_note" in body
+
+    live_db_path = tmp_path / "live.db"
+    conn = sqlite3.connect(live_db_path)
+    try:
+        version = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        assert version == _head_revision()
+        # la tabella `settings`, assente nel backup 0002, esiste dopo l'upgrade
+        conn.execute("SELECT 1 FROM settings LIMIT 0")
+    finally:
+        conn.close()
+
+
+def test_restore_from_head_backup_reports_zero_migrations(tmp_path, monkeypatch):
+    """Backup gia' a head (caso normale): restore no-op sullo schema, `migrations_applied`
+    = 0, nessun `schema_note`."""
+    client, _engine = _build_test_app(tmp_path, monkeypatch)
+    created = client.post("/backup").json()
+    filename = os.path.basename(created["db_path"])
+
+    resp = client.post("/backup/restore", json={"filename": filename, "confirm": True})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["migrations_applied"] == 0
+    assert "schema_note" not in body
+
+
+def test_restore_migration_failure_returns_case1_message(tmp_path, monkeypatch):
+    """Failure path del blocco 2 (ADR-0034 p.5): se `upgrade_schema_to_head` solleva, il
+    500 porta il messaggio del caso 1 (schema potenzialmente incoerente), distinto dal
+    caso rebuild."""
+    client, _engine = _build_test_app(tmp_path, monkeypatch)
+    created = client.post("/backup").json()
+    filename = os.path.basename(created["db_path"])
+
+    def boom():
+        raise RuntimeError("alembic esplode")
+
+    monkeypatch.setattr(backup_router, "upgrade_schema_to_head", boom)
+
+    resp = client.post("/backup/restore", json={"filename": filename, "confirm": True})
+
+    assert resp.status_code == 500
+    detail = resp.json()["detail"]
+    assert "migration fallita" in detail
+    assert "rebuild indice FTS" not in detail
+
+
+def test_restore_rebuild_failure_returns_case2_message(tmp_path, monkeypatch):
+    """Failure path del blocco 3 (ADR-0034 p.5, criterio T15 test #3): se il rebuild FTS
+    solleva DOPO una migration riuscita, il 500 porta il messaggio del caso 2 (indice
+    mancante), NON quello del caso 1 -- senza questa distinzione i due rami sarebbero
+    indistinguibili da fuori."""
+    client, _engine = _build_test_app(tmp_path, monkeypatch)
+    created = client.post("/backup").json()
+    filename = os.path.basename(created["db_path"])
+
+    def boom(_engine):
+        raise RuntimeError("rebuild esplode")
+
+    monkeypatch.setattr(backup_router, "rebuild_fts_index", boom)
+
+    resp = client.post("/backup/restore", json={"filename": filename, "confirm": True})
+
+    assert resp.status_code == 500
+    detail = resp.json()["detail"]
+    assert "rebuild indice FTS" in detail
+    assert "migration fallita" not in detail

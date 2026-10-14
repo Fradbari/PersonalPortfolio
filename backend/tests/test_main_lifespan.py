@@ -17,15 +17,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 
-from sqlalchemy import create_engine
+import pytest
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import main as main_module
 from app.db import Base
-from app.models import Settings
+from app.models import Settings, Transaction
 from app.services import settings as settings_service
+from app.services.search import sqlite_has_fts5
 
 
 class _SyncThread:
@@ -45,10 +48,16 @@ def _patch_settings_db(monkeypatch):
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
     )
     Base.metadata.create_all(engine)
+    return _patch_engine(monkeypatch, engine)
+
+
+def _patch_engine(monkeypatch, engine):
     Session = sessionmaker(bind=engine, future=True)
     # get_effective(session=None) apre una SessionLocal propria: la puntiamo a questo
     # engine di test, stesso pattern di test_settings_service.py.
     monkeypatch.setattr(settings_service, "SessionLocal", Session)
+    # Senza questo patch il lifespan toccherebbe l'engine di produzione (/data/portfolio.db).
+    monkeypatch.setattr(main_module, "engine", engine)
     return Session
 
 
@@ -122,8 +131,7 @@ def test_backup_on_startup_skipped_without_failing_boot_when_settings_table_miss
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
     )
     # NB: nessun Base.metadata.create_all -- simula un DB non ancora migrato.
-    Session = sessionmaker(bind=engine, future=True)
-    monkeypatch.setattr(settings_service, "SessionLocal", Session)
+    _patch_engine(monkeypatch, engine)
 
     monkeypatch.setattr(main_module.threading, "Thread", _SyncThread)
 
@@ -141,5 +149,88 @@ def test_backup_on_startup_skipped_without_failing_boot_when_settings_table_miss
     assert called["run_backup"] is False
     assert any(
         record.levelno == logging.WARNING and "backup_on_startup" in record.message
+        for record in caplog.records
+    )
+
+
+# --- Guardrail FTS all'avvio (ADR-0029 p.3, ADR-0034 p.5) ----------------------
+
+
+def test_sqlite_has_fts5_true_in_this_environment():
+    assert sqlite_has_fts5() is True
+
+
+def test_lifespan_raises_when_sqlite_has_no_fts5(monkeypatch):
+    _patch_settings_db(monkeypatch)
+    monkeypatch.setattr(main_module, "sqlite_has_fts5", lambda: False)
+
+    with pytest.raises(RuntimeError, match="FTS5"):
+        _run_lifespan_once()
+
+
+def test_lifespan_rebuilds_desynced_fts_index(monkeypatch, fts_engine):
+    _patch_engine(monkeypatch, fts_engine)
+    monkeypatch.setattr(main_module.threading, "Thread", _SyncThread)
+
+    Session = sessionmaker(bind=fts_engine, future=True)
+    with Session() as session:
+        txn = Transaction(
+            date=datetime(2026, 3, 1), amount=42.0, currency="EUR", type="expense",
+            category_raw="Alimentari", account="principale", comment="pranzo aziendale",
+            tag=None, source="my_finance", hash_dedup="lifespan-rebuild-1",
+        )
+        session.add(txn)
+        session.commit()
+        txn_id = txn.id
+
+    # Rimuove la riga dall'indice senza passare dal trigger DELETE (stato post-restore).
+    with fts_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO transactions_fts(transactions_fts, rowid, comment, tag, category_raw, account) "
+                "VALUES ('delete', :id, 'pranzo aziendale', NULL, 'Alimentari', 'principale')"
+            ),
+            {"id": txn_id},
+        )
+    with fts_engine.connect() as conn:
+        assert conn.execute(
+            text("SELECT rowid FROM transactions_fts WHERE transactions_fts MATCH 'pranzo'")
+        ).fetchall() == []
+
+    _run_lifespan_once()
+
+    with fts_engine.begin() as conn:
+        conn.execute(text("INSERT INTO transactions_fts(transactions_fts, rank) VALUES('integrity-check', 1)"))
+        rows = conn.execute(
+            text("SELECT rowid FROM transactions_fts WHERE transactions_fts MATCH 'pranzo'")
+        ).fetchall()
+    assert [r[0] for r in rows] == [txn_id]
+
+
+def test_lifespan_without_fts_table_warns_and_does_not_raise(monkeypatch, caplog):
+    _patch_settings_db(monkeypatch)  # create_all: nessuna virtual table
+
+    with caplog.at_level(logging.WARNING):
+        _run_lifespan_once()
+
+    assert any(
+        record.levelno == logging.WARNING and "transactions_fts" in record.message
+        for record in caplog.records
+    )
+
+
+def test_lifespan_rebuild_failure_logs_error_and_does_not_raise(monkeypatch, fts_engine, caplog):
+    _patch_engine(monkeypatch, fts_engine)
+
+    def boom(_engine):
+        raise RuntimeError("rebuild boom")
+
+    monkeypatch.setattr(main_module, "rebuild_fts_index", boom)
+
+    with caplog.at_level(logging.ERROR):
+        _run_lifespan_once()  # non deve sollevare
+
+    assert any(
+        record.levelno == logging.ERROR and "rebuild" in record.message.lower()
         for record in caplog.records
     )

@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -86,6 +87,10 @@ class Transaction(Base):
     __tablename__ = "transactions"
     __table_args__ = (
         CheckConstraint("type IN ('expense','income')", name="ck_type"),
+        Index("idx_transactions_date", "date"),
+        Index("idx_transactions_account", "account"),
+        Index("idx_transactions_category_id", "category_id"),
+        Index("idx_transactions_type", "type"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

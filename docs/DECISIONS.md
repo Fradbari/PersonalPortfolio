@@ -686,6 +686,13 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
      il placeholder di T6a, prima del merge del Blocco A. Non riaprire la scelta della palette
      stessa (shadcn slate + chart standard) senza un nuovo giro di review — solo i valori concreti
      restano da confermare a schermo.
+- **Rettifica additiva (2026-07-25, Blocco B — pianificazione F12/F13)**: due token nuovi,
+  `--chart-6` e `--chart-7`, in `frontend/src/index.css` (**sia** `:root` **sia** `.dark`) e in
+  `tailwind.config.js`. Motivo: il donut "top 6 categorie + Altro" di F13 (ADR-0030 p.5) ha **7**
+  fette, e `chartColors` ne ha solo 5. Gli indici 0-4 di `chartColors` restano **byte per byte
+  invariati** — nessun grafico esistente cambia colore. Mancare il token in uno solo dei due temi
+  riprodurrebbe la stessa classe di difetto già chiusa nel commit `7157e97` (leggibile in un tema,
+  invisibile nell'altro).
 
 ## ADR-0027 — Settings centralizzati (F9): `/settings` unico punto di configurazione UI, tabella key/value, precedenza DB > env > default, whitelist esplicita e blacklist permanente
 
@@ -821,6 +828,43 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   noto accettato: il suffisso rende `hash_dedup` non più un hash puro ma "hash + discriminante di
   ripetizione" — chi scrive query dirette sul DB deve saperlo, ed è il motivo per cui il punto 4
   esiste.
+- **Rettifica (2026-07-25, spec di dettaglio Blocco B, §3 D5)**: il punto 5 sopra prescriveva
+  `BEGIN IMMEDIATE` per serializzare lettura dell'ordinale e insert. Verificato sul codice: **zero
+  occorrenze** di `BEGIN IMMEDIATE` o di retry su `IntegrityError` in tutto `backend/app/` — il
+  meccanismo andrebbe costruito da zero, e nel modo sbagliato.
+  1. **Niente `BEGIN IMMEDIATE`.** Ottenerlo con pysqlite richiede `isolation_level=None` più un
+     listener `begin` **engine-wide** su `app.db.engine`: cambierebbe il comportamento
+     transazionale di *ogni* endpoint (import compresi, migliaia di righe) e resterebbe **senza
+     copertura di test**, perché i 148 test esistenti costruiscono ciascuno il proprio engine e non
+     passano da quello dell'app.
+  2. **Il meccanismo reale**: si arbitra il vincolo UNIQUE **già esistente** su `hash_dedup` con
+     retry — su `IntegrityError` si ricalcola l'ordinale `n` e si ritenta, **un solo nuovo giro**
+     poi 409 (implementazione T7: max 8 giri). Corretto per costruzione anche senza serializzazione
+     esplicita, blast radius nullo rispetto al resto del backend.
+  3. **Corollario non negoziabile**: `category_id` va validato con lookup esplicita **prima** di
+     entrare nel loop di retry. Con `PRAGMA foreign_keys=ON` (`db.py:24`) attivo, una violazione FK
+     produce un `IntegrityError` indistinguibile da quello su `hash_dedup`: senza il check
+     anticipato il loop girerebbe fino a esaurimento tentativi e restituirebbe un **409 fuorviante**
+     al posto del 404 corretto.
+  4. **Copertura di concorrenza dichiarata, non simulata**: nessun test a due thread — la fixture
+     in-memory `StaticPool` ha connessione singola e non può avere un secondo writer; su una
+     fixture file-based introdurrebbe `database is locked` intermittente. La suite copre il path
+     sequenziale (ordinale libero, ordinale occupato→retry, costante→409, categoria assente→404
+     senza consumare retry).
+  5. **Nota UI (F11, T10)**: l'inserimento manuale è un **dialog** aperto via stato React dentro
+     `/transazioni`, non una route nuova — nessuna voce aggiuntiva in `SPA_ROUTES`/`App.tsx`,
+     ADR-0033 invariato.
+- **Rettifica (2026-07-25, CHECKPOINT UMANO 1)**: durante CP1 l'implementazione originale
+  rifiutava con **422** una `date` oltre `MAX_FUTURE_DAYS` (1 giorno). L'utente ha corretto la
+  scelta: **non è un rifiuto secco**. Se la data è oltre soglia, il backend risponde **409** con
+  `{"message", "reason": "future_date", "transaction": null}` invece di inserire — stessa
+  meccanica del duplicato consapevole (punto 3 sopra), non una validazione bloccante. Il client
+  rimanda lo stesso body con `confirm_future_date: true` per procedere comunque. Nessuna soglia
+  numerica cambiata (resta 1 giorno): cambia solo cosa succede quando la si supera — un avviso
+  con via d'uscita esplicita, non un errore. Il 409 di duplicato e quello di esaurimento ordinale
+  (punto 3) guadagnano lo stesso discriminante `"reason"` (`"duplicate"` / `"ordinal_exhausted"`)
+  per uniformità del contratto congelato da CP1: un client può gestire tutti i 409 di
+  `POST /transactions` con lo stesso pattern "leggi `reason`, mostra il dialog giusto".
 
 ## ADR-0029 — Filtri avanzati e ricerca full-text (F12): SQLite FTS5 con trigger, rebuild post-restore, gate arm64 come prerequisito di merge, URL come unico stato dei filtri
 
@@ -847,6 +891,10 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
      `SELECT fts5_version();` deve rispondere. Se fallisce, il blocco **non si mergia**: si torna a
      `LIKE` e si riapre la decisione con un nuovo ADR. Non è rimandabile alla sessione-Pi: sarebbe
      scoprire il problema quando è già in produzione.
+     > **Correzione di fatto (2026-10-13), decisione invariata**: `fts5_version()` non è una
+     > funzione SQL reale di SQLite (falso negativo garantito, emerso al gate T0 del Blocco B). Il
+     > metodo di verifica è `PRAGMA compile_options` (deve contenere `ENABLE_FTS5`) + una
+     > `CREATE VIRTUAL TABLE ... USING fts5(...)` di prova con `MATCH` e `'rebuild'`.
   3. **Check fail-fast all'avvio** che l'SQLite in esecuzione abbia FTS5, con errore esplicito se
      assente — stessa logica del gate, applicata a runtime per l'ambiente reale.
   4. **Rebuild dell'indice dopo `POST /backup/restore`**, dentro la stessa procedura che già
@@ -867,6 +915,18 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   tool AI `search_transactions` read-only diventerebbe banale (nota in ADR-0032). Rischio residuo:
   se in futuro qualcuno scrivesse sul DB fuori da FastAPI, i trigger resterebbero l'unica difesa —
   accettabile finché ADR-0001 regge.
+- **Rettifica (2026-07-25, spec di dettaglio Blocco B, §3 D2)**: il punto 6 sopra chiedeva
+  intestazioni di gruppo e subtotali "senza rompere la paginazione" — due requisiti che litigano:
+  con `page`/`page_size` applicati, un gruppo può spezzarsi fra due pagine e il subtotale mostrato
+  sarebbe quello della sola pagina, senza alcun errore che lo segnali. **`group_by` diventa un ramo
+  a short-circuit**: risponde `{groups: [{key, count, total}]}` — solo subtotali, nessuna riga di
+  transazione — e **ignora** `page`/`page_size` invece di applicarli ai gruppi. Non è una feature in
+  meno: è l'unico modo per cui un subtotale significhi davvero "totale del gruppo" e non "totale
+  della pagina corrente del gruppo".
+- **Rettifica (2026-07-25, esecuzione T3)**: il punto 1 elencava solo `comment`, `tag`,
+  `category_raw` come colonne indicizzate da `transactions_fts`. La spec di dettaglio §5 (stessa
+  sessione di pianificazione, non riallineata qui) aggiunge **`account`** come quarta colonna,
+  implementata coerentemente in T3. Colonne corrette: `comment`, `tag`, `category_raw`, `account`.
 
 ## ADR-0030 — Dashboard avanzate (F13): estensione del service layer di F6, mai un secondo; "saldo cumulato" non è "patrimonio netto"; Metabase invariata
 
@@ -918,6 +978,15 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   Metabase (F3) calcolano gli stessi indicatori con motori diversi — la verifica incrociata contro i
   totali noti del dataset F2 (331 transazioni, uscite 9937.70 €, entrate 19497.14 €) resta il
   controllo che li tiene allineati.
+- **Rettifica (2026-07-25, spec di dettaglio Blocco B, §3 D1)**: il punto 2 sopra ("estensione di
+  `services/insights.py`, mai un secondo service layer") resta valido, ma il piano dava per scontato
+  che i pannelli uscissero anche dallo stesso *endpoint* `GET /insights`. Verificato sul codice:
+  `test_insights.py:117-118` è l'unico dei 5 test F5 che asserisce con `==` sul **body intero** —
+  qualunque chiave aggiunta a `GET /insights` lo romperebbe. **I sei pannelli escono da un endpoint
+  nuovo, `GET /insights/panels`**, con contratto proprio (forma a chiavi nominate, congelato in
+  `2026-07-25-f11-f12-f13-detail-spec.md` §7). `GET /insights` resta **byte-identico**, i 5 test F5
+  passano invariati. Il divieto del punto 2 è su un secondo *service layer* — `services/insights.py`
+  resta l'unico produttore di aggregati per entrambi gli endpoint — non su un secondo *endpoint*.
 
 ## ADR-0031 — Test di connettività Google Drive (F10): probe write→read→delete, credenziali lette solo da config, errori sanitizzati, cleanup best-effort (specializza ADR-0018 e ADR-0027)
 
@@ -1094,3 +1163,58 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   particolarità del solo proxy di sviluppo Vite, non riproducibile in produzione (verificato: il
   container di produzione, testato al checkpoint umano 2, non usa il proxy Vite). Non rimuovere
   questo `bypass` pensando che la rettifica del punto 4 lo renda superfluo.
+
+## ADR-0034 — Restore porta il DB a head (specializza ADR-0018)
+
+- Status: Accepted — Fase: F12 (Blocco B) — Data: 2026-07-25
+- Contesto: verificato sul codice — `POST /backup/restore` (`backend/app/routers/backup.py`)
+  sovrascrive il file DB dal backup ma **non fa mai girare Alembic**: due blocchi `try/except`
+  indipendenti (restore filesystem-puro, poi refresh replica best-effort) con **nulla in mezzo**.
+  Il difetto è già attivo **oggi**, non solo da F12: un restore da un backup pre-F9 riporta indietro
+  anche la tabella `settings`, e il backend che si avvia sopra è quello con codice nuovo. F12 alza la
+  posta: introduce `transactions_fts` + 3 trigger (ADR-0029), quindi un restore da un backup
+  pre-FTS5 lascerebbe girare ricerche testuali su un indice che non esiste, con `fts_available()` a
+  fare da unica rete.
+- Decisione:
+  1. **Ordine obbligato**: copia del backup → `alembic upgrade head` → rebuild indice FTS → refresh
+     replica Metabase. Invertire copia e upgrade migrerebbe il DB pre-restore, che la copia
+     sovrascriverebbe subito dopo: migration persa, nessun errore a segnalarlo.
+  2. **La logica di schema vive in una funzione nuova, `upgrade_schema_to_head()`**
+     (`backend/app/backup.py`), chiamata dal router — **non** dentro `restore_from_backup()`, che
+     resta filesystem-puro e testato come tale in `test_backup_core.py` su un engine senza FTS.
+  3. **Perché colpisce il file giusto**: `run_migrations_online()` (Alembic) costruisce un proprio
+     engine via `engine_from_config(..., poolclass=pool.NullPool)` — non riusa `app.db.engine` (quello
+     importato in `env.py:8` serve solo a esporre `Base`) — e `NullPool` non cachea connessioni:
+     l'engine di Alembic nasce **dopo** che la copia ha già sovrascritto il file.
+  4. **Clausola sullo schema più nuovo del backup**:
+
+     > Se `alembic upgrade head` introduce tabelle non presenti nel backup — perché create da fasi
+     > successive al backup stesso — quelle tabelle vengono create **vuote**. È il comportamento
+     > corretto e atteso: il restore garantisce **coerenza di schema**, non completezza dei dati
+     > delle tabelle nuove. Il body di `POST /backup/restore` dichiara quante migration sono state
+     > applicate (`migrations_applied: N`) e, quando `N > 0`, aggiunge `schema_note`: "N
+     > migration(s) applied: alcune tabelle potrebbero essere vuote se il backup precede tali fasi."
+
+  5. **Quattro blocchi `try/except` distinti, quattro messaggi**: restore (esistente, rilancia
+     `HTTPException` su `FileNotFoundError`), migration (nuovo), rebuild FTS (nuovo), refresh replica
+     (esistente, best-effort). Un `except` condiviso darebbe lo stesso messaggio a guasti con rimedio
+     diverso:
+
+     | Cosa fallisce | Stato reale | Messaggio |
+     |---|---|---|
+     | `alembic upgrade head` | file già sovrascritto, schema incoerente | "Restore completato ma migration fallita: il DB potrebbe essere incoerente. Ripetere il restore da un backup valido." |
+     | rebuild FTS, dopo migration OK | schema integro, manca solo l'indice | "Restore e migration OK, ma rebuild indice FTS fallito: la ricerca testuale non funzionerà. Riavviare il backend per un rebuild automatico." |
+     | refresh replica | tutto integro | già best-effort, non blocca |
+
+  6. **`threading.Lock` di modulo** che avvolge tutti e quattro i blocchi nella loro interezza, non i
+     singoli step. Due restore paralleli sono già distruttivi oggi (`engine.dispose()` + `shutil.copy2`
+     senza protezione): il lock chiude anche questo difetto pre-esistente, non solo quello nuovo.
+- Conseguenze: chiude D5/D6 (spec Blocco B) alla radice e **retroattivamente** — vale anche per i
+  backup pre-F9 già esistenti. Nuova superficie di guasto dichiarata (la migration può fallire
+  durante un restore) invece di un guasto silenzioso preesistente; tre messaggi distinti al posto di
+  uno generico rendono esplicito il prossimo passo per l'operatore. Il rebuild FTS gira **prima** del
+  refresh replica, così Metabase non legge mai un DB con ricerca testuale disallineata. Debito
+  accettato: la copertura di due restore paralleli resta un test difficile da automatizzare
+  deterministicamente (stessa classe di limite di ADR-0028 p.5 sulla concorrenza) — il lock è
+  corretto per costruzione, la suite verifica il path sequenziale e il failure path di ciascun
+  blocco singolarmente.

@@ -6,19 +6,33 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.backup import BACKUP_PREFIX, apply_local_retention, create_backup, list_local_backups, restore_from_backup
+from app.backup import (
+    BACKUP_PREFIX,
+    apply_local_retention,
+    create_backup,
+    list_local_backups,
+    restore_from_backup,
+    upgrade_schema_to_head,
+)
 from app.config import settings
 from app.db import engine, refresh_read_only_replica
 from app.drive import apply_drive_retention, get_drive_service, upload_file
+from app.services.search import rebuild_fts_index
 from app.services.settings import get_effective
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/backup", tags=["backup"])
+
+# Serializza i restore (ADR-0034 p.6): due restore paralleli sono gia' distruttivi oggi
+# (`engine.dispose()` + `shutil.copy2` senza protezione). Il lock avvolge tutti e quattro
+# i blocchi nella loro interezza, non i singoli step.
+_restore_lock = threading.Lock()
 
 
 def run_backup() -> dict:
@@ -100,14 +114,48 @@ def restore(payload: RestoreRequest):
     if os.path.dirname(backup_db_path) != backup_dir_abs:
         raise HTTPException(status_code=400, detail="filename atteso: portfolio_backup_YYYYMMDD_HHMMSS.db")
 
-    try:
-        restore_from_backup(engine, backup_db_path, settings.db_path)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # Ordine obbligato ADR-0034 p.1: copia -> upgrade -> rebuild FTS -> refresh replica.
+    # Quattro blocchi try/except distinti (p.5): un except condiviso darebbe lo stesso
+    # messaggio a guasti con rimedio diverso. Tutti dentro un solo _restore_lock (p.6).
+    with _restore_lock:
+        try:
+            restore_from_backup(engine, backup_db_path, settings.db_path)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    try:
-        refresh_read_only_replica()
-    except Exception as exc:  # replica Metabase: best-effort (ADR-0004)
-        logger.warning("Replica read-only non aggiornata dopo restore (non bloccante): %s", exc)
+        try:
+            migrations_applied = upgrade_schema_to_head()
+        except Exception as exc:  # file gia' sovrascritto: schema potenzialmente incoerente
+            logger.error("Migration fallita dopo restore di %s: %s", filename, exc)
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Restore completato ma migration fallita: il DB potrebbe essere "
+                    "incoerente. Ripetere il restore da un backup valido."
+                ),
+            ) from exc
 
-    return {"restored_from": filename}
+        try:
+            rebuild_fts_index(engine)
+        except Exception as exc:  # schema integro, manca solo l'indice testuale
+            logger.error("Rebuild indice FTS fallito dopo restore di %s: %s", filename, exc)
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Restore e migration OK, ma rebuild indice FTS fallito: la ricerca "
+                    "testuale non funzionera'. Riavviare il backend per un rebuild automatico."
+                ),
+            ) from exc
+
+        try:
+            refresh_read_only_replica()
+        except Exception as exc:  # replica Metabase: best-effort (ADR-0004)
+            logger.warning("Replica read-only non aggiornata dopo restore (non bloccante): %s", exc)
+
+    body: dict = {"restored_from": filename, "migrations_applied": migrations_applied}
+    if migrations_applied > 0:
+        body["schema_note"] = (
+            f"{migrations_applied} migration(s) applied: alcune tabelle potrebbero essere "
+            "vuote se il backup precede tali fasi."
+        )
+    return body

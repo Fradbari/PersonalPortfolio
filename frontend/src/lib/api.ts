@@ -1,4 +1,31 @@
 // frontend/src/lib/api.ts
+
+export class ApiError extends Error {
+  status: number
+  body: unknown
+
+  constructor(status: number, body: unknown) {
+    const message = resolveErrorMessage(body, status)
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body
+  }
+}
+
+function resolveErrorMessage(body: unknown, status: number): string {
+  if (typeof body === 'string') {
+    return body
+  }
+  if (typeof body === 'object' && body !== null) {
+    const message = (body as Record<string, unknown>).message
+    if (typeof message === 'string') {
+      return message
+    }
+  }
+  return `Errore HTTP ${status}`
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...options,
@@ -6,7 +33,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.detail ?? `Errore HTTP ${res.status}`)
+    throw new ApiError(res.status, body.detail)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -27,7 +54,7 @@ export async function uploadFile<T>(path: string, file: File): Promise<T> {
   const res = await fetch(path, { method: 'POST', body: formData })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.detail ?? `Errore HTTP ${res.status}`)
+    throw new ApiError(res.status, body.detail)
   }
   return res.json() as Promise<T>
 }
