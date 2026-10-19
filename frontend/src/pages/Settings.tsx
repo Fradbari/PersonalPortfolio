@@ -95,6 +95,11 @@ function validatePositiveInts(values: EditableValues): string | null {
       return `"${label}" deve essere un numero intero maggiore o uguale a 1.`
     }
   }
+  // D11: `ai_history_max_turns` ammette 0 ("nessuna memoria"), non negativi.
+  const turns = values.ai_history_max_turns
+  if (!Number.isInteger(turns) || turns < 0) {
+    return '"Turni massimi di cronologia" deve essere un numero intero maggiore o uguale a 0.'
+  }
   return null
 }
 
@@ -236,6 +241,8 @@ export function Settings() {
             Turni massimi di cronologia
             <input
               type="number"
+              min={0}
+              step={1}
               value={values.ai_history_max_turns}
               onChange={(e) =>
                 setValues((v) => ({ ...v, ai_history_max_turns: parseNumberInput(e.target.value) }))
@@ -243,6 +250,7 @@ export function Settings() {
               className="mt-1 block w-32 rounded border px-2 py-1 text-xs"
             />
           </label>
+          <p className="mt-1 text-xs text-muted-foreground">0 = nessuna memoria</p>
           <SettingMeta item={findSetting(data, 'ai_history_max_turns')} />
         </section>
 
