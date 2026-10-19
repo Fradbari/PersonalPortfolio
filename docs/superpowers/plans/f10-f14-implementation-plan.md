@@ -251,11 +251,28 @@ Copia scratch cancellata a fine CP2; evidenze nel ledger.
 
 ---
 
+## T7b — Ultimo esito backup + folder id vuoto nel backup (aggiunto a CP2, 2026-10-19)
+
+**Agente**: backup-agent. **File**: `backend/app/routers/backup.py`, `backend/app/main.py`,
+`backend/tests/test_backup_last.py`. Rettifica ADR-0031 (2026-10-19), nessuna revision.
+
+`run_backup(trigger)` registra l'ultimo esito in memoria (lock) su successo ed errore;
+`GET /backup/last` → `{"last": {...} | null}`; folder id vuoto → nessun upload,
+`folder_id_missing` (G2); log del thread di avvio via `redact()`.
+
+**Criteri**: esito `startup` e `manual` registrati; `null` al boot senza backup; sentinella del
+folder id assente da risposte e log; 8 backup concorrenti → stato coerente; G2 con test dedicato;
+suite verde, `alembic heads` = `0006`.
+
+---
+
 ## T8 — UI F10 su `/backup-restore`
 
 **Agente**: react-ui-agent. **File**: `frontend/src/pages/Backup.tsx`.
 
 Spec §6. `useMutation` sul click, mai al mount. Tipi TypeScript dell'esito dal contratto di CP1.
+Banner "Ultimo backup" da `useQuery` su `GET /backup/last` (T7b): `null` → "Nessun backup in
+questa sessione" (non un errore); Drive fallito → avviso con il `message`.
 
 **Criteri**: grep su `Backup.tsx` di `useQuery(` con `gdrive` → 0; ricaricare la pagina non
 produce alcuna richiesta a `/backup/gdrive-test` (verificato nel pannello Network); `tsc` e build

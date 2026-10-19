@@ -1065,6 +1065,23 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
      `drive_error` è il `message` dell'esito classificato e i log passano da `redact()`; forma del
      body invariata. Test di regressione: folder id assente dalla risposta di **entrambi** gli
      endpoint.
+- **Rettifica (2026-10-19, CHECKPOINT UMANO 2 — task T7b, approvata dall'utente)**: due
+  estensioni a `run_backup()` nello spirito della rettifica p.5 (D7), nessun nuovo ADR.
+  1. **Folder id vuoto anche nel backup (G2)**: il p.1 bloccava `folder_id_missing` solo nel
+     probe; `run_backup()` invece chiamava `upload_file` senza `parents` → file nella root della
+     Service Account e `drive_uploaded: true` con configurazione incompleta. Ora, con Service
+     Account presente e `GDRIVE_BACKUP_FOLDER_ID` vuoto, nessun upload né retention Drive,
+     `drive_error = outcome_message("folder_id_missing")`; backup e retention locali eseguiti
+     comunque. Ordine dei controlli identico al probe: prima la Service Account (`sa_missing`),
+     poi il folder id. Test di regressione dedicato.
+  2. **Ultimo esito visibile (`GET /backup/last`)**: il backup di avvio (`backup_on_startup`,
+     ADR-0018 p.6) gira in un thread e il suo esito restava solo nel log. `run_backup(trigger)`
+     registra ora, su successo ed errore, `{at, trigger, local_ok, drive_uploaded, drive_outcome,
+     message}` in uno stato di modulo **in memoria** protetto da lock (nessuna tabella, nessuna
+     revision: si perde al riavvio ed è ricreato dal backup di avvio). `message` viene solo da
+     `outcome_message()` o da un testo fisso, mai da `str(exc)`; `null` se nessun backup è stato
+     eseguito nel processo. Il log d'errore del thread di avvio (`main.py`) passa da `redact()`.
+     La pagina `/backup-restore` lo mostra come banner "Ultimo backup" (T8).
 
 ## ADR-0032 — Persistenza chat AI (F14): `chat_sessions`/`chat_messages`, finestra di contesto troncata nell'adapter, scrittura solo dal router, modello sempre read-only (specializza ADR-0023)
 

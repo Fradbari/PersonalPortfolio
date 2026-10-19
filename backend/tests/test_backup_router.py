@@ -177,6 +177,8 @@ def test_run_backup_drive_retention_uses_db_value_over_config_default(tmp_path, 
 
     monkeypatch.setattr(backup_router, "get_drive_service", lambda path: object())
     monkeypatch.setattr(backup_router, "upload_file", lambda *args, **kwargs: None)
+    # Con folder id vuoto il ramo Drive e' saltato (fix G2, T7b): serve un valore.
+    monkeypatch.setattr(backup_router.settings, "gdrive_backup_folder_id", "test-folder")
 
     captured: dict = {}
 

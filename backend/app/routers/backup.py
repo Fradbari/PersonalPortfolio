@@ -8,6 +8,7 @@ import dataclasses
 import logging
 import os
 import threading
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -47,9 +48,44 @@ _restore_lock = threading.Lock()
 _probe_lock = threading.Lock()
 
 
-def run_backup() -> dict:
+# Ultimo esito backup del processo corrente (solo in memoria, T7b). Scritto da
+# `run_backup` su successo ed errore; letto da `GET /backup/last` come copia.
+# Contiene solo testi da `outcome_message` o fissi: mai `str(exc)` (CLAUDE.md regola 7).
+_last_backup: dict | None = None
+_last_backup_lock = threading.Lock()
+
+_LOCAL_FAILURE_MESSAGE = "Backup locale fallito: controlla il log del backend."
+_POST_LOCAL_FAILURE_MESSAGE = (
+    "Copia locale creata, ma la fase successiva (impostazioni o retention) è fallita: "
+    "controlla il log del backend."
+)
+
+
+def _record_last_backup(
+    trigger: str,
+    *,
+    local_ok: bool,
+    drive_uploaded: bool,
+    drive_outcome: str | None,
+    message: str | None,
+) -> None:
+    global _last_backup
+    entry = {
+        "at": datetime.now().isoformat(timespec="seconds"),
+        "trigger": trigger,
+        "local_ok": local_ok,
+        "drive_uploaded": drive_uploaded,
+        "drive_outcome": drive_outcome,
+        "message": message,
+    }
+    with _last_backup_lock:
+        _last_backup = entry
+
+
+def run_backup(trigger: str = "manual") -> dict:
     """Punto unico riusato dall'endpoint manuale e dal job opzionale all'avvio
-    (ADR-0018 punto 6).
+    (ADR-0018 punto 6). `trigger` ("manual" | "startup") finisce solo nello stato
+    "ultimo esito" (`GET /backup/last`).
 
     `backup_retention` e' letto via `get_effective` (F9, ADR-0027 p.3: DB > env >
     default) invece che da `config.settings` direttamente. Nessuna sessione e'
@@ -57,28 +93,63 @@ def run_backup() -> dict:
     sia dal thread di avvio (`main.py`, nessuna richiesta HTTP in corso) -> si
     lascia `get_effective` aprire/chiudere una propria `SessionLocal`
     (`session=None`, il default della funzione)."""
-    result = create_backup(engine, settings.db_path, settings.backup_dir)
+    try:
+        result = create_backup(engine, settings.db_path, settings.backup_dir)
+    except Exception:
+        _record_last_backup(
+            trigger, local_ok=False, drive_uploaded=False, drive_outcome=None,
+            message=redact(_LOCAL_FAILURE_MESSAGE),
+        )
+        raise
+
+    drive: dict = {"uploaded": False, "outcome": None, "error": None}
+    try:
+        payload = _drive_and_retention(result, drive)
+    except Exception:
+        # Copia locale gia' creata: l'esito resta registrato anche se la lettura di
+        # backup_retention o la retention locale falliscono dopo.
+        _record_last_backup(
+            trigger, local_ok=True, drive_uploaded=drive["uploaded"],
+            drive_outcome=drive["outcome"], message=redact(_POST_LOCAL_FAILURE_MESSAGE),
+        )
+        raise
+
+    _record_last_backup(
+        trigger, local_ok=True, drive_uploaded=drive["uploaded"],
+        drive_outcome=drive["outcome"], message=drive["error"],
+    )
+    return payload
+
+
+def _drive_and_retention(result, drive: dict) -> dict:
     backup_retention, _source = get_effective("backup_retention")
 
-    drive_uploaded = False
-    drive_error: str | None = None
     drive_deleted: list[str] = []
     try:
+        # Ordine dei controlli (coerente con run_gdrive_probe): prima la SA, poi il
+        # folder id. Con folder id vuoto nessun upload (fix G2, rettifica ADR-0031):
+        # senza `parents` il file finirebbe nella radice del Drive della SA.
         # get_drive_service() e' dentro il try: una Service Account key presente
         # ma malformata/corrotta solleva un'eccezione da from_service_account_file()
         # (non solo "file assente" - quello ritorna None senza eccezione) e deve
         # restare best-effort come il resto del blocco Drive (ADR-0004/ADR-0018).
+        # Costruisce solo il client, nessuna chiamata di rete.
         service = get_drive_service(settings.google_sa_key_path)
         if service is None:
-            drive_error = "Service Account non montata: upload Drive skippato."
+            drive["outcome"] = "sa_missing"
+            drive["error"] = "Service Account non montata: upload Drive skippato."
+        elif not settings.gdrive_backup_folder_id:
+            drive["outcome"] = "folder_id_missing"
+            drive["error"] = outcome_message("folder_id_missing")
         else:
             upload_file(service, result.db_path, settings.gdrive_backup_folder_id)
             upload_file(service, result.xlsx_path, settings.gdrive_backup_folder_id)
-            drive_uploaded = True
+            drive["uploaded"] = True
             drive_deleted = apply_drive_retention(service, settings.gdrive_backup_folder_id, backup_retention)
     except Exception as exc:  # SA malformata/rete/permessi Drive: best-effort (ADR-0004/ADR-0018)
         outcome, status, _reason = classify_drive_error(exc, "write")
-        drive_error = outcome_message(outcome)
+        drive["outcome"] = outcome
+        drive["error"] = outcome_message(outcome)
         logger.warning(redact(f"Backup Drive fallito (non bloccante): {outcome} {type(exc).__name__} status={status}"))
 
     local_deleted = apply_local_retention(settings.backup_dir, backup_retention)
@@ -87,8 +158,8 @@ def run_backup() -> dict:
         "db_path": result.db_path,
         "xlsx_path": result.xlsx_path,
         "row_count": result.row_count,
-        "drive_uploaded": drive_uploaded,
-        "drive_error": drive_error,
+        "drive_uploaded": drive["uploaded"],
+        "drive_error": drive["error"],
         "local_deleted": local_deleted,
         "drive_deleted": drive_deleted,
     }
@@ -97,6 +168,13 @@ def run_backup() -> dict:
 @router.post("")
 def backup_now():
     return run_backup()
+
+
+@router.get("/last")
+def last_backup():
+    with _last_backup_lock:
+        last = dict(_last_backup) if _last_backup is not None else None
+    return {"last": last}
 
 
 @router.post("/gdrive-test")
