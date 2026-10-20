@@ -29,6 +29,8 @@ DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 DRIVE_TIMEOUT_SECONDS = 30
 PROBE_PREFIX = "portfolio_gdrive_probe_"
 _QUOTA_REASONS = {"storageQuotaExceeded", "quotaExceeded", "rateLimitExceeded", "userRateLimitExceeded"}
+# 403 con questi reason: Drive API non abilitata nel progetto GCP della SA (rilevato a CP2).
+_API_DISABLED_REASONS = {"accessNotConfigured", "SERVICE_DISABLED"}
 _SECURITY_REF = "Vedi docs/SECURITY.md, sezione «Backup su Google Drive»."
 _MESSAGES = {
     "ok": "Connessione riuscita: scrittura, lettura e cancellazione sulla cartella Drive configurata.",
@@ -38,6 +40,10 @@ _MESSAGES = {
     "sa_auth_failed": "Autenticazione della Service Account rifiutata: chiave revocata o disabilitata, generane una nuova. " + _SECURITY_REF,
     "folder_not_found": "Cartella non trovata o non condivisa con la Service Account. " + _SECURITY_REF,
     "permission_denied": "Permesso insufficiente: condividi la cartella con la Service Account come Editor. " + _SECURITY_REF,
+    "api_disabled": (
+        "Google Drive API non abilitata nel progetto Google Cloud della Service Account: abilitala da "
+        "«API e servizi → Libreria → Google Drive API» e riprova dopo qualche minuto. " + _SECURITY_REF
+    ),
     "quota_exceeded": (
         "Quota esaurita o Service Account senza quota di storage propria: i file creati da una SA in un "
         "Drive personale vengono rifiutati. Rimedio: Shared Drive (Google Workspace) oppure OAuth utente. "
@@ -95,6 +101,8 @@ def classify_drive_error(exc: Exception, stage: str) -> tuple[str, int | None, s
             return "sa_auth_failed", status, reason
         if status in (403, 429) and reason in _QUOTA_REASONS:
             return "quota_exceeded", status, reason
+        if status == 403 and reason in _API_DISABLED_REASONS:
+            return "api_disabled", status, reason
         if status == 403:
             return "permission_denied", status, reason
         return "unexpected", status, reason

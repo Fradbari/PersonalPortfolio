@@ -1082,6 +1082,14 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
      `outcome_message()` o da un testo fisso, mai da `str(exc)`; `null` se nessun backup è stato
      eseguito nel processo. Il log d'errore del thread di avvio (`main.py`) passa da `redact()`.
      La pagina `/backup-restore` lo mostra come banner "Ultimo backup" (T8).
+- **Rettifica (2026-10-20, CHECKPOINT UMANO 2 — probe reale)**: il probe dal container ha
+  restituito HTTP 403 `accessNotConfigured` in `cleanup` (Google Drive API non abilitata nel
+  progetto GCP della Service Account). La regola "ogni 403 non di quota → `permission_denied`"
+  mostrava il rimedio sbagliato ("condividi la cartella"). Aggiunto il **12° esito**
+  `api_disabled` (403 con reason `accessNotConfigured` o `SERVICE_DISABLED`), con rimedio
+  "abilita Google Drive API nel progetto della SA". Vale anche per `drive_error` di
+  `POST /backup` e per `GET /backup/last` (stessa `classify_drive_error`). Contratto per il resto
+  invariato; test sul probe e sulla classificazione.
 
 ## ADR-0032 — Persistenza chat AI (F14): `chat_sessions`/`chat_messages`, finestra di contesto troncata nell'adapter, scrittura solo dal router, modello sempre read-only (specializza ADR-0023)
 

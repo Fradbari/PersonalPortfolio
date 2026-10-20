@@ -289,3 +289,19 @@ def test_redact_ai_api_key(monkeypatch):
     monkeypatch.setattr(settings, "google_sa_key_path", "")
     monkeypatch.setattr(settings, "ai_api_key", "K3Y")
     assert redact("x K3Y y") == "x <ai_api_key> y"
+
+
+@pytest.mark.parametrize("reason", ["accessNotConfigured", "SERVICE_DISABLED"])
+def test_api_disabled_names_cause_and_remedy(monkeypatch, sa_path, reason):
+    # CP2 reale: 403 accessNotConfigured in cleanup era classificato permission_denied
+    # con il rimedio sbagliato ("condividi la cartella").
+    res = probe(monkeypatch, sa_path, FakeDrive(fail={"list": http_error(403, reason)}))
+    assert (res.outcome, res.stage, res.google_status) == ("api_disabled", "cleanup", 403)
+    assert "Google Drive API" in res.message and "condividi" not in res.message
+    assert_clean(res, sa_path)
+
+
+def test_api_disabled_in_post_backup_drive_error():
+    exc = http_error(403, "accessNotConfigured")
+    assert classify_drive_error(exc, "write")[0] == "api_disabled"
+    assert drive.outcome_message("api_disabled") == drive._MESSAGES["api_disabled"]
