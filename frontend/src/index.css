@@ -42,8 +42,10 @@
     --ring: 212.7 26.8% 83.9%;
     --primary: 210 40% 98%;
     --primary-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    /* Contrasto WCAG: text-destructive su background/card 6.6:1, su muted 4.8:1;
+       destructive-foreground (scuro) su bg-destructive 6.6:1 */
+    --destructive: 0 90% 68%;
+    --destructive-foreground: 222.2 84% 4.9%;
     --warning: 38 92% 50%;
     --warning-foreground: 38 92% 85%;
     --success: 142 70% 45%;

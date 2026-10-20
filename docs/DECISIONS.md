@@ -693,6 +693,14 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   invariati** — nessun grafico esistente cambia colore. Mancare il token in uno solo dei due temi
   riprodurrebbe la stessa classe di difetto già chiusa nel commit `7157e97` (leggibile in un tema,
   invisibile nell'altro).
+- **Rettifica additiva (2026-10-20, Blocco C — CHECKPOINT UMANO 3, approvata dall'utente)**: in
+  `.dark` il valore shadcn di `--destructive` (`0 62.8% 30.6%`) usato come **testo**
+  (`text-destructive`, ~30 siti: errori, importi in uscita, KPI) dava contrasto **2.0:1** su
+  `--background`. Nuovi valori solo in `.dark`: `--destructive: 0 90% 68%` e
+  `--destructive-foreground: 222.2 84% 4.9%` (scuro, perché il rosso ora è chiaro). Contrasti
+  WCAG calcolati: testo su background/card **6.62:1**, su muted **4.84:1**, foreground su
+  `bg-destructive` **6.62:1**. `:root` (light) invariato, nessun token nuovo. Stessa classe di
+  difetto di `--warning-foreground` corretto nell'audit post-merge del Blocco A.
 
 ## ADR-0027 — Settings centralizzati (F9): `/settings` unico punto di configurazione UI, tabella key/value, precedenza DB > env > default, whitelist esplicita e blacklist permanente
 
