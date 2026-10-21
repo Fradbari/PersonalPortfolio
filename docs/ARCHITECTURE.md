@@ -278,7 +278,7 @@ piano implementativo quando parte, come F5/F6/F7.
 |---|---|---|---|---|
 | **A — Fondamenta UI** | `f8-f9-theme-settings` | F8 dark mode, F9 settings | tabella `settings` | react-ui-agent, schema-agent |
 | **B — Superficie transazioni** | `f11-f12-f13-transactions` | F11 inserimento, F12 filtri, F13 dashboard | FTS5 | react-ui-agent, schema-agent, dashboard-agent |
-| **C — Integrazioni** | `f10-f14-drive-chat` | F10 GDrive test, F14 chat AI | tabelle chat | backup-agent, ai-agent, schema-agent |
+| **C — Integrazioni** | `f10-f14-drive-chat` | F10 GDrive test, F14 chat AI | tabelle chat | backup-agent, ai-agent, schema-agent, react-ui-agent |
 
 Ordine vincolante: **A prima di B** (F12/F13 consumano i token colore di F8 e la pagina di F9). C è
 indipendente **funzionalmente**, ma **non** nella catena Alembic: numero e `down_revision` si
@@ -458,8 +458,8 @@ mergiato e pushato su `origin/master`** (`37f93ac`). |
 | F11 Inserimento manuale — **Blocco B** | ☑ fatto (2026-07-27) | Backend: `POST /transactions` (T7, commit `123fb08`+fix `c85cac7`+emendamento CP1 `6b29898`). Ordine ADR-0028: lookup `category_id`→404, poi `category_raw`/hash/insert. Ordinale `#n` con retry su `IntegrityError` (mai `BEGIN IMMEDIATE`, rettifica p.5). **CP1 (checkpoint umano) superato con un emendamento dell'utente**: una data oltre `MAX_FUTURE_DAYS` (1 giorno) non è più un rifiuto 422 ma un avviso 409 `reason:"future_date"` con via d'uscita `confirm_future_date:true` — stessa meccanica del duplicato (`reason:"duplicate"`); terzo `reason:"ordinal_exhausted"` senza via d'uscita. Frontend: `ApiError` (T8), primitive UI (T9), form manuale + dialog sui 3 `reason` (T10, commit `91971b6`+fix `edf6b30` dopo 2 Important di review — un retry post-409 poteva scrivere un payload diverso da quello mostrato a schermo; il backdrop del dialog azzerava l'intero form su un trascinamento di selezione testo). Dettaglio review task-per-task in `.superpowers/sdd/progress.md`. |
 | F12 Filtri avanzati + FTS5 — **Blocco B** | ☑ fatto e mergiato (2026-10-14, `ab9c360`) | **Gate arm64 sull'immagine finale: GO** (2026-10-14, `pp-backend:arm64-verify`, HEAD `19ad2f7`, DB vuoto scratch): alembic 0001→0005, `/health` 200 `phase:"13"`, `0.1.0-phase13` in OpenAPI, `ENABLE_FTS5` presente, con `transactions_fts` assente warning all'avvio e nessun crash. Post-merge su master: 252 test verdi, `alembic heads` = `0005`. Review finale whole-branch: 0 Critical, fix committati (rebuild FTS + check `ENABLE_FTS5` all'avvio, invalidazione `['insights']`). **Gate M12.0 arm64+FTS5: GO** (T0) — dettaglio storico: bug trovato nello script di verifica del piano (`SELECT fts5_version()` non è una funzione SQL reale), riverificato con `PRAGMA compile_options`+virtual table reale. Migration `0004` indici (T2) + `0005` FTS5/trigger (T3, `content='transactions'` su `comment,tag,category_raw,account`) fatte, review-approvate dopo un fix Critical (il test permanente dei trigger non rilevava un UPDATE trigger insert-only — corretto con `integrity-check` a due argomenti). `services/search.py` (T5), filtri/`group_by`/`q` su `GET /transactions` (T6) e filtri avanzati in `useSearchParams` (T11, commit `228d760`+fix `9f839b7` — il 503 deliberato di FTS5 mancante spariva dietro una tabella vuota silenziosa, ora un errore visibile) fatti. Nato il primo `conftest.py` del progetto (fixture `fts_engine`, Strategia A con `EnvironmentContext` esplicito) — **T4 è stato assorbito da T3**, non serve più come task separato. **T15 fatto (2026-09-05, ADR-0034)**: `POST /backup/restore` ora fa copia → `alembic upgrade head` (`upgrade_schema_to_head()` in `backup.py`, `command.upgrade` con `NullPool`) → `rebuild_fts_index` → refresh replica, quattro try/except distinti dentro un `threading.Lock` di modulo; body con `migrations_applied:N` e `schema_note` se N>0. Chiude D5 (restore non faceva girare Alembic) e retroattivamente i backup pre-F9. **Footgun evitato**: `_alembic_config()` NON passa `alembic.ini` a `Config` — altrimenti `env.py` chiamerebbe `fileConfig(..., disable_existing_loggers=True)` a ogni restore, silenziando i logger dell'app (rilevato dal test del lifespan). 4 nuovi test (D5 con backup 0002→settings creata + `version_num`=head sul file, no-op da head, failure path migration=caso 1 e rebuild=caso 2 distinti). Suite 245 verdi. |
 | F13 Dashboard avanzate — **Blocco B** | ☑ fatto e mergiato (2026-10-14, `ab9c360`) | Pianificata 2026-07-21 (ADR-0030), spec/piano 2026-07-25 (task T12-T14). Nessuna revision. **Rettifica ADR-0030 p.3 applicata**: `GET /insights/panels` (T13, commit `0a4fb75`) è endpoint **nuovo**, `GET /insights` resta byte-identico (i suoi 5 test invariati) e `ai/tools.py` non toccato — verificato dal reviewer sul diff, non sul solo report. **Rettifica additiva ADR-0026 applicata**: `--chart-6`/`--chart-7` (T12, commit `13d616f`), indici 0-4 di `chartColors` invariati byte per byte. **CP1b (checkpoint umano) superato**: verifica dal vivo del controller su copia scratch del DB reale (mai `data/portfolio.db`) — `kpi` incrocia esattamente i totali noti F2 (income 19497.14€, expense 9937.70€), `months` tronca senza riempire, donut ≤7 con "Altro" reale, `month_over_month` si ancora davvero all'ultimo mese con dati (giugno) e non al mese corrente wall-clock. **Due punti che il contratto congelato non decideva alla lettera, confermati esplicitamente dall'utente**: `month_over_month` ignora la finestra `months`/`date_from` di default (resta ancorato ai dati reali più recenti); `month_over_month` è solo-uscite come `category_donut`. Sei pannelli React (T14, commit `0e1760f`+fix `0092227`) fatti: **replace** dei 3 pannelli sovrapposti di `Dashboard.tsx` con le versioni nuove da `/insights/panels` (saldo cumulato ora windowed, non più all-time), **keep** "Saldo per conto" (nessun equivalente nel nuovo contratto), **add** trend risparmio/confronto mese su mese/KPI. Un giro di review ha trovato "patrimonio" **dentro il commento che lo vietava** (non tracciato da git al momento del check dell'implementer — bug del metodo, non solo del codice), corretto e riverificato via confronto hash dei blob. "Saldo cumulato", mai "patrimonio" (verificato da grep a radice di parola, non dalla disciplina — ADR-0030). Metabase invariata. **CP2 superato (2026-09-04)**: giudizio visivo da browser reale confermato dall'utente — 7 pannelli leggibili in dark, wording corretto, `--chart-6/7` non collidono, il dialog del 409 mostra la gemella. Era l'ultimo checkpoint umano del blocco. |
-| F10 Backup GDrive + test — **Blocco C** | ◐ implementata, T10 da fare (2026-10-20) | Branch `f10-f14-drive-chat` (pushato, non mergiato). `POST /backup/gdrive-test` probe write→read→delete con 12 esiti tipizzati (ADR-0031 + rettifiche 2026-10-14/19/20), errori sanitizzati con `redact()` anche in `POST /backup` (D7). **T7b** (`9d276a1`, aggiunto a CP2): `GET /backup/last` (ultimo esito in memoria, anche del backup all'avvio) e folder id vuoto → nessun upload (G2). **T8** (`07c2df3`): UI su `/backup-restore` (test solo al click + banner "Ultimo backup"). **`ece6dfe`**: esito `api_disabled` (403 `accessNotConfigured`, emerso al probe reale). **CP2 chiuso (2026-10-20)**: probe reale dal container → `quota_exceeded`/`storageQuotaExceeded` (SA senza quota su Drive personale): F10 funziona e il messaggio indica il rimedio; **rimedio (Shared Drive o OAuth utente) = ADR separato dopo C**. Fughe in risposta/log: 0. |
-| F14 Storicità chat AI — **Blocco C** | ◐ implementata, T10 da fare (2026-10-20) | Revision `0006` `chat_sessions`/`chat_messages` (+ `truncated`, D8). Ordine ADR-0032 p.3 rispettato con evidenza rosso→verde in 4 tempi (ledger). Troncamento nell'adapter, persistenza solo dal router, registry read-only. **CP1 approvato (2026-10-14)**; **CP2**: Gemini reale, follow-up col contesto, ripresa dopo riavvio, restore da `0005` → chat vuote + 404. **T9** (`4994192`): UI `/assistente-ai` (sessione in URL, traccia tool per messaggio, "Azzera storico" a 2 step, 404 da `ApiError.status`), `ai_history_max_turns ≥ 0`. **CP3 chiuso (2026-10-21)**: light+dark approvati; fix `--destructive` dark (`d8a7de7`, contrasto 2.0→6.6:1, rettifica ADR-0026). Suite **331 verdi**, `alembic heads` = `0006`, `phase` ancora `"13"`. |
+| F10 Backup GDrive + test — **Blocco C** | ◐ mergiata (`55e2b79`, 2026-10-21), T10 da fare | Branch `f10-f14-drive-chat` (pushato), mergiato su `master` prima di T10 (`55e2b79`). `POST /backup/gdrive-test` probe write→read→delete con 12 esiti tipizzati (ADR-0031 + rettifiche 2026-10-14/19/20), errori sanitizzati con `redact()` anche in `POST /backup` (D7). **T7b** (`9d276a1`, aggiunto a CP2): `GET /backup/last` (ultimo esito in memoria, anche del backup all'avvio) e folder id vuoto → nessun upload (G2). **T8** (`07c2df3`): UI su `/backup-restore` (test solo al click + banner "Ultimo backup"). **`ece6dfe`**: esito `api_disabled` (403 `accessNotConfigured`, emerso al probe reale). **CP2 chiuso (2026-10-20)**: probe reale dal container → `quota_exceeded`/`storageQuotaExceeded` (SA senza quota su Drive personale): F10 funziona e il messaggio indica il rimedio; **rimedio (Shared Drive o OAuth utente) = ADR separato dopo C**. Fughe in risposta/log: 0. |
+| F14 Storicità chat AI — **Blocco C** | ◐ mergiata (`55e2b79`, 2026-10-21), T10 da fare | Revision `0006` `chat_sessions`/`chat_messages` (+ `truncated`, D8). Ordine ADR-0032 p.3 rispettato con evidenza rosso→verde in 4 tempi (ledger). Troncamento nell'adapter, persistenza solo dal router, registry read-only. **CP1 approvato (2026-10-14)**; **CP2**: Gemini reale, follow-up col contesto, ripresa dopo riavvio, restore da `0005` → chat vuote + 404. **T9** (`4994192`): UI `/assistente-ai` (sessione in URL, traccia tool per messaggio, "Azzera storico" a 2 step, 404 da `ApiError.status`), `ai_history_max_turns ≥ 0`. **CP3 chiuso (2026-10-21)**: light+dark approvati; fix `--destructive` dark (`d8a7de7`, contrasto 2.0→6.6:1, rettifica ADR-0026). Suite **331 verdi**, `alembic heads` = `0006`, `phase` ancora `"13"`. |
 
 Legenda: ☐ da fare · ◐ in corso · ☑ fatto/verificato.
 
@@ -505,8 +505,9 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
 Fase corrente: BLOCCO C MERGIATO SU master PRIMA DI T10 (merge 55e2b79, 2026-10-21, su richiesta
-dell'utente). Branch f10-f14-drive-chat su origin; master NON ancora pushato su origin (verificare
-con `git status` / `git log origin/master..master` e chiedere all'utente prima di pushare).
+dell'utente). Branch f10-f14-drive-chat su origin. master pushato su origin fino a 850f416; i commit
+docs successivi (allineamento README/prompt) sono solo locali: verificare con
+`git log origin/master..master` e pushare SOLO con ok dell'utente.
 T1-T9 + T7b fatti; CP1, CP2, CP3 chiusi. Commit chiave: 9d276a1 (T7b) · 07c2df3 (T8) · 4994192
 (T9) · ece6dfe (api_disabled) · d8a7de7 (--destructive dark). 331 test backend verdi su master,
 `alembic heads` = 0006, phase ancora "13".
@@ -517,15 +518,28 @@ gitignored: commit, test, rettifiche ADR, debiti, vincoli). Poi spec e piano del
 - docs/superpowers/plans/f10-f14-implementation-plan.md (sezione T10 e "Review finale")
 
 PROSSIMI PASSI, in quest'ordine, su un branch nuovo creato da master (es. `blocco-c-t10`):
-1. T10 (piano §T10): phase/version → "14" / 0.1.0-phase14 + test; SECURITY.md (chat nei backup e
-   nella replica, tabella esiti F10 → rimedio incluso api_disabled/quota_exceeded, POST /backup
-   sanitizzato); debiti in ARCHITECTURE.md (D4 logging INFO invisibile, rimedio Drive); gate arm64
-   sull'immagine finale (FTS5 nella forma corretta, alembic 0001→0006 su DB vuoto scratch,
-   /health phase "14"); grep finali dopo `git add -A`. Il cleanup dell'ambiente CP3 è GIÀ FATTO.
-2. Review finale whole-branch con subagent claude-opus-5-5 (dichiararlo) sull'intero Blocco C:
-   `git diff 749d86c...HEAD` (749d86c = master prima del merge di C), non solo sul branch di T10.
-3. Fix → suite, alembic heads, build frontend.
-4. ⛔ STOP: ok esplicito dell'utente PRIMA del merge del branch di T10 su master.
+1. T10 [main, piano §T10]: phase/version "14" / 0.1.0-phase14 + `test_health_version.py`;
+   SECURITY.md (chat nei backup NON rimosse da "Azzera storico" finché la retention non li ruota;
+   chat nella replica Metabase; tabella esiti F10 → rimedio con api_disabled/quota_exceeded;
+   POST /backup sanitizzato, D7); USER_GUIDE.md (F10 + F14); ARCHITECTURE.md (righe F10/F14 → ☑,
+   debiti D4 logging INFO invisibile + rimedio Drive + TODO `vite.config.ts` bypass /backup-restore)
+   e CLAUDE.md (fase corrente); README (stato fase); `alembic heads` = 1 riga + `upgrade head` e
+   `downgrade` fino a 0002 su DB scratch + 3 trigger FTS; gate arm64 sull'immagine finale
+   (PRAGMA compile_options + virtual table fts5 di prova, alembic 0001→0006 su DB vuoto scratch,
+   polling /health fino a phase "14", 0.1.0-phase14 in /openapi.json); dopo `git add -A`:
+   `git grep -i patrimon` = 0, `git grep -E "GOOGLE_API_KEY|GEMINI_API_KEY"` solo nei divieti;
+   suite completa verde. Il cleanup dell'ambiente CP3 è GIÀ FATTO.
+2. Review finale whole-branch [subagent claude-opus-5-5, dichiararlo] sull'intero Blocco C:
+   `git diff 749d86c...HEAD` (749d86c = master prima del merge di C; il `master...HEAD` del piano è
+   superato dal merge anticipato). Prescrizioni: regola 7 (nessun folder id/path SA/chiave in
+   risposte, messaggi, log); registry ancora read-only; `previous_interaction_id` mai fra domande;
+   nessun `batch_alter_table`; rosso→verde del ledger corrispondente ai commit. Esito e modello
+   dichiarati nel report.
+3. Fix per area: backup-agent (drive.py, routers/backup.py) · ai-agent (ai/, routers/ai.py) ·
+   schema-agent (0006, models.py) · react-ui-agent (Backup.tsx, AiAssistant.tsx, index.css).
+   Suite, alembic heads e build frontend li esegue il main (i subagent non hanno shell).
+4. ⛔ STOP: ok esplicito dell'utente PRIMA del merge del branch di T10 su master. Push su origin e
+   rebuild del container SOLO con ok (backup preventivo del DB reale, vedi avviso sotto).
 
 AVVISO DB REALE: data/portfolio.db è a 0003 (il container pp-backend in esecuzione è a phase 9,
 immagine pre-merge). Il codice su master è già a 0006: il primo avvio di un container ricostruito
@@ -568,7 +582,8 @@ fissano AL MERGE (`alembic heads` = 1 riga).
 F7 Raspberry arm64: ◐ PARCHEGGIATA in attesa hardware (Pi 4 4GB), runbook docs/RASPBERRY-PI.md e
 punti aperti P1-P4.
 
-Esecuzione in subagent-driven-development: un task per subagent, review dopo ciascuno.
+Esecuzione in subagent-driven-development: un task per subagent, review dopo ciascuno (T10 e i
+gate li esegue il main).
 ```
 
 ## Verifica (a fine implementazione, per fase)

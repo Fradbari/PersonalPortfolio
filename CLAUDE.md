@@ -103,8 +103,8 @@ Ordine vincolante: **A prima di B**. C è indipendente funzionalmente, **non** n
 Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.
 - **ingestion-agent** — parser My Finance, adapter un-pivot master, category mapper, dedup (F1/F2).
 - **schema-agent** — modelli SQLAlchemy, Alembic revision, integrità schema (ogni fase che tocca il DB).
-  Prossime: `settings` (F9), FTS5 `transactions_fts` + trigger (F12), `chat_sessions`/`chat_messages`
-  (F14). Numero e `down_revision` si fissano **al merge** — `alembic heads` deve dare una sola riga.
+  Fatte: `settings` (F9, 0003), FTS5 `transactions_fts` + trigger (F12, 0005),
+  `chat_sessions`/`chat_messages` (F14, 0006 = head). Numero e `down_revision` si fissano **al merge** — `alembic heads` deve dare una sola riga.
 - **dashboard-agent** — Metabase, replica read-only atomica, dashboard/insight (F3). Esteso a F13:
   pannelli React complementari (saldo cumulato, cash flow, donut categorie, trend risparmio,
   confronto mese su mese, KPI), tutti su `chartConfig` condiviso. Metabase resta invariata.
