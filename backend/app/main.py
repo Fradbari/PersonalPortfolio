@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import engine
+from app.drive import redact
 from app.routers import accounts, ai, backup, categories, imports, insights, settings as settings_router, transactions
 from app.services.search import fts_available, rebuild_fts_index, sqlite_has_fts5
 from app.services.settings import get_effective
@@ -20,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 def _run_startup_backup() -> None:
     try:
-        backup.run_backup()
+        backup.run_backup(trigger="startup")
     except Exception as exc:  # best-effort: non deve bloccare l'avvio (ADR-0018 punto 6)
-        logger.warning("Backup all'avvio fallito (non bloccante): %s", exc)
+        logger.warning(redact(f"Backup all'avvio fallito (non bloccante): {type(exc).__name__}: {exc}"))
 
 
 def _rebuild_fts_on_startup() -> None:

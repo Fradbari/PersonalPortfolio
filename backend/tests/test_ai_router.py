@@ -46,7 +46,7 @@ def _build_test_app(fake_provider: AIProvider | None = None):
 
 
 class _HappyProvider(AIProvider):
-    def answer(self, question: str, session) -> AIAnswer:
+    def answer(self, question, session, history=None) -> AIAnswer:
         return AIAnswer(
             text=f"risposta a: {question}",
             tool_calls=[ToolCall(name="get_accounts", args={}, result_summary="2 conti")],
@@ -55,12 +55,12 @@ class _HappyProvider(AIProvider):
 
 
 class _NotConfiguredProvider(AIProvider):
-    def answer(self, question: str, session) -> AIAnswer:
+    def answer(self, question, session, history=None) -> AIAnswer:
         raise AIProviderNotConfigured("AI_PROVIDER non configurato")
 
 
 class _RuntimeErrorProvider(AIProvider):
-    def answer(self, question: str, session) -> AIAnswer:
+    def answer(self, question, session, history=None) -> AIAnswer:
         raise AIProviderError("timeout simulato verso il provider")
 
 
@@ -81,7 +81,7 @@ def test_query_returns_200_with_answer_and_tools_used():
 
 def test_query_propagates_truncated_flag():
     class _TruncatedProvider(AIProvider):
-        def answer(self, question: str, session) -> AIAnswer:
+        def answer(self, question, session, history=None) -> AIAnswer:
             return AIAnswer(text="parziale", tool_calls=[], truncated=True)
 
     client = _build_test_app(fake_provider=_TruncatedProvider())

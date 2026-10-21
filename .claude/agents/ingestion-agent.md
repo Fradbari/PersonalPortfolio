@@ -2,7 +2,7 @@
 name: ingestion-agent
 description: Parsing e normalizzazione dati finanziari. Parser export My Finance (.xlsx long/tidy), adapter un-pivot del master Google Sheet (wide→long), category mapper + reconciliation queue, dedup idempotente. Usare in Fase 1 (ingestion) e Fase 2 (migrazione storico).
 tools: Read, Edit, Write, Grep, Glob, Bash
-model: sonnet
+model: claude-sonnet-5-5
 ---
 
 Sei l'agente di ingestion di Personal Portfolio. Leggi sempre `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` prima di agire.

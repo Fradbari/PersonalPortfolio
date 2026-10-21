@@ -177,6 +177,8 @@ def test_run_backup_drive_retention_uses_db_value_over_config_default(tmp_path, 
 
     monkeypatch.setattr(backup_router, "get_drive_service", lambda path: object())
     monkeypatch.setattr(backup_router, "upload_file", lambda *args, **kwargs: None)
+    # Con folder id vuoto il ramo Drive e' saltato (fix G2, T7b): serve un valore.
+    monkeypatch.setattr(backup_router.settings, "gdrive_backup_folder_id", "test-folder")
 
     captured: dict = {}
 
@@ -229,9 +231,9 @@ def test_restore_runs_migrations_and_reports_applied(tmp_path, monkeypatch):
 
     assert resp.status_code == 200
     body = resp.json()
-    # 0002 -> head = 0003, 0004, 0005 (catena lineare corrente). Se una migration futura
+    # 0002 -> head = 0003, 0004, 0005, 0006 (catena lineare corrente). Se una migration futura
     # venisse aggiunta, questo valore cambia: e' un segnale voluto, non un test fragile.
-    assert body["migrations_applied"] == 3
+    assert body["migrations_applied"] == 4
     assert "schema_note" in body
 
     live_db_path = tmp_path / "live.db"
@@ -241,6 +243,38 @@ def test_restore_runs_migrations_and_reports_applied(tmp_path, monkeypatch):
         assert version == _head_revision()
         # la tabella `settings`, assente nel backup 0002, esiste dopo l'upgrade
         conn.execute("SELECT 1 FROM settings LIMIT 0")
+    finally:
+        conn.close()
+
+
+def test_restore_from_0005_backup_creates_empty_chat_tables(tmp_path, monkeypatch):
+    """D3: backup pre-F14 (0005) restaurato -> head, tabelle chat vuote, dati intatti."""
+    client, _engine = _build_test_app(tmp_path, monkeypatch)
+    backup_dir = tmp_path / "backups"
+    filename = _make_backup_at_revision(backup_dir, "0005", "20200102_000000")
+    bconn = sqlite3.connect(backup_dir / filename)
+    try:
+        bconn.execute(
+            "INSERT INTO transactions (date, amount, currency, type, category_raw, account, source, hash_dedup) "
+            "VALUES ('2026-02-01', 5.0, 'EUR', 'expense', 'Bkp', 'principale', 'my_finance', 'hbackup')"
+        )
+        bconn.commit()
+    finally:
+        bconn.close()
+
+    resp = client.post("/backup/restore", json={"filename": filename, "confirm": True})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["migrations_applied"] >= 1
+    assert "schema_note" in body
+
+    conn = sqlite3.connect(tmp_path / "live.db")
+    try:
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == _head_revision()
+        assert conn.execute("SELECT COUNT(*) FROM chat_sessions").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM transactions WHERE hash_dedup='hbackup'").fetchone()[0] == 1
     finally:
         conn.close()
 
@@ -301,3 +335,128 @@ def test_restore_rebuild_failure_returns_case2_message(tmp_path, monkeypatch):
     detail = resp.json()["detail"]
     assert "rebuild indice FTS" in detail
     assert "migration fallita" not in detail
+
+
+# ---- F10 T3: POST /backup/gdrive-test + redazione drive_error (ADR-0031, D7) ----
+import json as _json
+import logging
+import threading
+
+from test_gdrive_probe import FakeDrive, http_error
+
+from app import drive as drive_module
+
+SENT = "SENTINEL_FOLDER_123"
+SENT_SA = "SENTINEL_SA_PATH_456.json"
+
+
+def _sentinels(tmp_path, monkeypatch, *, sa_exists=True, folder=SENT):
+    sa = tmp_path / SENT_SA
+    if sa_exists:
+        sa.write_text("{}")
+    monkeypatch.setattr(backup_router.settings, "google_sa_key_path", str(sa))
+    monkeypatch.setattr(backup_router.settings, "gdrive_backup_folder_id", folder)
+    monkeypatch.setattr(backup_router.settings, "ai_api_key", "")
+    return str(sa)
+
+
+def _assert_no_sentinel(text, sa):
+    assert SENT not in text
+    assert SENT_SA not in text and sa not in text
+
+
+def test_gdrive_test_never_leaks_sentinels_real_probe(tmp_path, monkeypatch):
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    sa = _sentinels(tmp_path, monkeypatch)
+    cases = {
+        "404": FakeDrive(fail={"create": http_error(404, "notFound", folder=SENT)}),
+        "403_quota": FakeDrive(fail={"create": http_error(403, "storageQuotaExceeded", folder=SENT)}),
+        "403": FakeDrive(fail={"list": http_error(403, "forbidden", folder=SENT)}),
+        "500": FakeDrive(fail={"create": http_error(500, folder=SENT)}),
+        "ok": FakeDrive(),
+    }
+    for name, fake in cases.items():
+        monkeypatch.setattr(drive_module, "get_drive_service", lambda _p, f=fake: f)
+        resp = client.post("/backup/gdrive-test")
+        assert resp.status_code == 200, name
+        _assert_no_sentinel(resp.text, sa)
+    assert client.post("/backup/gdrive-test").json()["ok"] is True
+
+
+def test_gdrive_test_never_leaks_sentinels_config_outcomes(tmp_path, monkeypatch):
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    sa = _sentinels(tmp_path, monkeypatch, sa_exists=False)
+    resp = client.post("/backup/gdrive-test")
+    assert resp.status_code == 200 and resp.json()["outcome"] == "sa_missing"
+    _assert_no_sentinel(resp.text, sa)
+
+    sa = _sentinels(tmp_path, monkeypatch, folder="")
+    monkeypatch.setattr(drive_module, "get_drive_service", lambda _p: FakeDrive())
+    resp = client.post("/backup/gdrive-test")
+    assert resp.json()["outcome"] == "folder_id_missing"
+    _assert_no_sentinel(resp.text, sa)
+
+
+def test_gdrive_test_ignores_body_and_uses_settings(tmp_path, monkeypatch):
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    sa = _sentinels(tmp_path, monkeypatch)
+    seen = {}
+
+    def fake_probe(sa_key_path, folder_id):
+        seen["args"] = (sa_key_path, folder_id)
+        return drive_module.run_gdrive_probe(sa_key_path, folder_id)
+
+    monkeypatch.setattr(backup_router, "run_gdrive_probe", fake_probe)
+    monkeypatch.setattr(
+        drive_module, "get_drive_service",
+        lambda _p: FakeDrive(fail={"create": http_error(404, "notFound", folder="OTHER_SENTINEL")}),
+    )
+    resp = client.post("/backup/gdrive-test", json={"folder_id": "OTHER_SENTINEL", "sa_key_path": "OTHER_PATH"})
+    assert resp.status_code == 200
+    assert seen["args"] == (sa, SENT)
+    assert "OTHER_SENTINEL" not in resp.text and "OTHER_PATH" not in resp.text
+    _assert_no_sentinel(resp.text, sa)
+
+
+def test_gdrive_test_lock_returns_409_then_recovers(tmp_path, monkeypatch):
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    _sentinels(tmp_path, monkeypatch)
+    monkeypatch.setattr(drive_module, "get_drive_service", lambda _p: FakeDrive())
+    assert backup_router._probe_lock.acquire(blocking=False)
+    try:
+        resp = client.post("/backup/gdrive-test")
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Test di connessione già in corso."
+    finally:
+        backup_router._probe_lock.release()
+    assert client.post("/backup/gdrive-test").status_code == 200
+    assert not backup_router._probe_lock.locked()
+
+
+def _backup_with_404(tmp_path, monkeypatch, caplog):
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    sa = _sentinels(tmp_path, monkeypatch)
+    fake = FakeDrive(fail={"create": http_error(404, "notFound", folder=SENT)})
+    monkeypatch.setattr(backup_router, "get_drive_service", lambda _p: fake)
+    monkeypatch.setattr(drive_module, "get_drive_service", lambda _p: fake)
+    caplog.set_level(logging.DEBUG)
+    return client, sa
+
+
+def test_backup_drive_error_is_redacted(tmp_path, monkeypatch, caplog):
+    client, sa = _backup_with_404(tmp_path, monkeypatch, caplog)
+    resp = client.post("/backup")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["drive_error"] and body["drive_uploaded"] is False
+    _assert_no_sentinel(resp.text, sa)
+    _assert_no_sentinel(caplog.text, sa)
+
+
+def test_folder_id_absent_from_both_endpoints_same_404(tmp_path, monkeypatch, caplog):
+    client, sa = _backup_with_404(tmp_path, monkeypatch, caplog)
+    for path in ("/backup", "/backup/gdrive-test"):
+        resp = client.post(path)
+        assert resp.status_code == 200
+        _assert_no_sentinel(resp.text, sa)
+    _assert_no_sentinel(caplog.text, sa)

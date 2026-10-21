@@ -81,7 +81,7 @@ def test_backup_on_startup_db_true_starts_backup_even_if_config_default_false(mo
 
     called = {"run_backup": False}
 
-    def fake_run_backup():
+    def fake_run_backup(**_kwargs):
         called["run_backup"] = True
         return {}
 
@@ -104,7 +104,7 @@ def test_backup_on_startup_db_false_skips_backup_even_if_config_default_true(mon
 
     called = {"run_backup": False}
 
-    def fake_run_backup():
+    def fake_run_backup(**_kwargs):
         called["run_backup"] = True
         return {}
 
@@ -137,7 +137,7 @@ def test_backup_on_startup_skipped_without_failing_boot_when_settings_table_miss
 
     called = {"run_backup": False}
 
-    def fake_run_backup():
+    def fake_run_backup(**_kwargs):
         called["run_backup"] = True
         return {}
 

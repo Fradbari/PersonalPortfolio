@@ -693,6 +693,14 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   invariati** — nessun grafico esistente cambia colore. Mancare il token in uno solo dei due temi
   riprodurrebbe la stessa classe di difetto già chiusa nel commit `7157e97` (leggibile in un tema,
   invisibile nell'altro).
+- **Rettifica additiva (2026-10-20, Blocco C — CHECKPOINT UMANO 3, approvata dall'utente)**: in
+  `.dark` il valore shadcn di `--destructive` (`0 62.8% 30.6%`) usato come **testo**
+  (`text-destructive`, ~30 siti: errori, importi in uscita, KPI) dava contrasto **2.0:1** su
+  `--background`. Nuovi valori solo in `.dark`: `--destructive: 0 90% 68%` e
+  `--destructive-foreground: 222.2 84% 4.9%` (scuro, perché il rosso ora è chiaro). Contrasti
+  WCAG calcolati: testo su background/card **6.62:1**, su muted **4.84:1**, foreground su
+  `bg-destructive` **6.62:1**. `:root` (light) invariato, nessun token nuovo. Stessa classe di
+  difetto di `--warning-foreground` corretto nell'audit post-merge del Blocco A.
 
 ## ADR-0027 — Settings centralizzati (F9): `/settings` unico punto di configurazione UI, tabella key/value, precedenza DB > env > default, whitelist esplicita e blacklist permanente
 
@@ -1034,6 +1042,62 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   F4). La configurazione Drive diventa verificabile **prima** di scoprirla rotta durante un backup.
   Trade-off accettato e dichiarato in `docs/SECURITY.md`: il test **scrive davvero** nel Drive
   dell'utente, sia pure un file effimero di pochi byte.
+- **Rettifica (2026-10-14, spec di dettaglio Blocco C** —
+  `docs/superpowers/specs/2026-10-14-f10-f14-detail-spec.md` **§3-§4)**: dettaglio
+  implementativo fissato prima del codice, decisioni di fondo invariate.
+  1. **Contratto**: `POST /backup/gdrive-test` risponde **200 per ogni esito diagnostico**, positivo
+     o negativo — il risultato del test è il payload, non un errore dell'endpoint — con `ok`,
+     `outcome` (11 codici: `ok`, `sa_missing`, `sa_invalid`, `folder_id_missing`,
+     `sa_auth_failed`, `folder_not_found`, `permission_denied`, `quota_exceeded`, `timeout`,
+     `network_error`, `unexpected`), `stage` (`config`/`cleanup`/`write`/`read`/`delete`),
+     `message` (testo fisso per esito, con rimedio), `google_status`, `google_reason`,
+     `probe_written`, `probe_deleted`, `orphans_removed`, `elapsed_ms`. **409** se un probe è già
+     in corso (lock di modulo non bloccante: due probe paralleli si cancellerebbero il file a
+     vicenda come "orfano"). `folder_id_missing` blocca **prima** di scrivere: `upload_file` con
+     folder id vuoto caricherebbe nella root della Service Account, invisibile all'utente.
+  2. **Precisazione del p.3(a)**: in `googleapiclient` `HttpError.reason` è il **messaggio umano**
+     di Google (per un 404: `"File not found: <folder_id>."`), non un token. Si usano solo
+     `exc.resp.status` e il valore `"reason"` del primo dict di `exc.error_details` quando questo è
+     una lista (`notFound`, `storageQuotaExceeded`, …); `error_details` può essere una stringa
+     col messaggio o col body grezzo e in quel caso non si usa. Mai `str(exc)`, `exc.reason`,
+     `exc.content`, `exc.uri`.
+  3. **Funzione di redazione** `redact()` in `backend/app/drive.py`: `str.replace` letterale dei
+     valori **non vuoti** delle tre chiavi di `BLACKLIST` (ADR-0027 p.6), in ordine di lunghezza
+     decrescente. Il valore vuoto va saltato: `"abc".replace("", "X")` vale `"XaXbXcX"`.
+  4. **Il probe riusa `upload_file` e `delete_file`** di F4: un probe con parametri diversi dal
+     backup proverebbe un'altra cosa. Pulizia orfani con le stesse operazioni list/delete della
+     retention: un loro fallimento interrompe il test con l'esito reale.
+  5. **Estensione a `POST /backup`** (decisione D7, approvata dall'utente): `run_backup()`
+     restituiva `drive_error = str(exc)`, che con una cartella non condivisa conteneva il folder id
+     e veniva mostrato in UI — violazione **attiva** della regola 7 di `CLAUDE.md`. Ora
+     `drive_error` è il `message` dell'esito classificato e i log passano da `redact()`; forma del
+     body invariata. Test di regressione: folder id assente dalla risposta di **entrambi** gli
+     endpoint.
+- **Rettifica (2026-10-19, CHECKPOINT UMANO 2 — task T7b, approvata dall'utente)**: due
+  estensioni a `run_backup()` nello spirito della rettifica p.5 (D7), nessun nuovo ADR.
+  1. **Folder id vuoto anche nel backup (G2)**: il p.1 bloccava `folder_id_missing` solo nel
+     probe; `run_backup()` invece chiamava `upload_file` senza `parents` → file nella root della
+     Service Account e `drive_uploaded: true` con configurazione incompleta. Ora, con Service
+     Account presente e `GDRIVE_BACKUP_FOLDER_ID` vuoto, nessun upload né retention Drive,
+     `drive_error = outcome_message("folder_id_missing")`; backup e retention locali eseguiti
+     comunque. Ordine dei controlli identico al probe: prima la Service Account (`sa_missing`),
+     poi il folder id. Test di regressione dedicato.
+  2. **Ultimo esito visibile (`GET /backup/last`)**: il backup di avvio (`backup_on_startup`,
+     ADR-0018 p.6) gira in un thread e il suo esito restava solo nel log. `run_backup(trigger)`
+     registra ora, su successo ed errore, `{at, trigger, local_ok, drive_uploaded, drive_outcome,
+     message}` in uno stato di modulo **in memoria** protetto da lock (nessuna tabella, nessuna
+     revision: si perde al riavvio ed è ricreato dal backup di avvio). `message` viene solo da
+     `outcome_message()` o da un testo fisso, mai da `str(exc)`; `null` se nessun backup è stato
+     eseguito nel processo. Il log d'errore del thread di avvio (`main.py`) passa da `redact()`.
+     La pagina `/backup-restore` lo mostra come banner "Ultimo backup" (T8).
+- **Rettifica (2026-10-20, CHECKPOINT UMANO 2 — probe reale)**: il probe dal container ha
+  restituito HTTP 403 `accessNotConfigured` in `cleanup` (Google Drive API non abilitata nel
+  progetto GCP della Service Account). La regola "ogni 403 non di quota → `permission_denied`"
+  mostrava il rimedio sbagliato ("condividi la cartella"). Aggiunto il **12° esito**
+  `api_disabled` (403 con reason `accessNotConfigured` o `SERVICE_DISABLED`), con rimedio
+  "abilita Google Drive API nel progetto della SA". Vale anche per `drive_error` di
+  `POST /backup` e per `GET /backup/last` (stessa `classify_drive_error`). Contratto per il resto
+  invariato; test sul probe e sulla classificazione.
 
 ## ADR-0032 — Persistenza chat AI (F14): `chat_sessions`/`chat_messages`, finestra di contesto troncata nell'adapter, scrittura solo dal router, modello sempre read-only (specializza ADR-0023)
 
@@ -1105,6 +1169,39 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   configurabile senza rilascio. Rischio residuo accettato: una conversazione lunga può far uscire
   dalla rete locale più dati di quanti l'utente ricordi di aver inviato; mitigato dal cap, dalla
   traccia dei tool sempre visibile (ADR-0023 p.11) e dal pulsante di azzeramento.
+- **Rettifica (2026-10-14, spec di dettaglio Blocco C** —
+  `docs/superpowers/specs/2026-10-14-f10-f14-detail-spec.md` **§3, §5)**:
+  1. **Rettifica additiva al p.1 — colonna `chat_messages.truncated`** (`BOOLEAN NOT NULL DEFAULT
+     0`, decisione D8 approvata dall'utente). `POST /ai/query` restituisce già `truncated` (cap
+     iterazioni, ADR-0023 p.7) e la UI mostra un avviso di risposta parziale: senza la colonna,
+     riaprendo una conversazione l'avviso sparirebbe e la stessa risposta tornerebbe a sembrare
+     completa — il troncamento silenzioso che ADR-0023 p.7 vieta. Revision `0006`. Vincoli
+     aggiuntivi di schema: `CHECK (role IN ('user','assistant'))`, FK `ON DELETE CASCADE` come
+     cintura (la cancellazione resta esplicita nel router: i DB di test in-memory non attivano
+     `PRAGMA foreign_keys`), ordinamento sempre `(created_at, id)`.
+  2. **Formato della history (p.3)**: `history: list[ChatTurn] | None`, `ChatTurn(role, content)`,
+     solo testo — la traccia dei tool dei turni passati non si rimanda al modello. L'adapter Gemini
+     la converte in Step `user_input`/`model_output` dell'Interactions API: `Turn`/`TurnParam` sono
+     **deprecati** in `google-genai` 2.12.1. Con history vuota `input` resta la stringa della
+     domanda, identico a F6. `previous_interaction_id` resta confinato al loop tool della singola
+     domanda e **non** si usa fra domande diverse: è stato lato Google, non troncabile né
+     cancellabile da "Azzera storico".
+  3. **Semantica del cap (p.4)**: `ai_history_max_turns <= 0` → nessuna history, con ramo
+     esplicito (`history[-2*n:]` con `n = 0` restituirebbe **tutta** la lista). Il cap si legge
+     solo con history non vuota, alla domanda.
+  4. **Ordine dei task (p.3) reso eseguibile**: il passo (2) diventa verde solo se il router
+     carica e passa la history. Il router si divide quindi in **percorso di lettura** (accetta
+     `session_id`, carica, passa la conversazione completa) nel passo (2) e **percorso di
+     scrittura** (persistenza, endpoint sessioni) nel passo (3). Evidenza rosso→verde in quattro
+     tempi nel ledger del blocco.
+  5. **Persistenza solo su risposta riuscita**: domanda e risposta scritte nella stessa
+     transazione, dopo il provider; su 400/502 nulla è persistito. Un `session_id` inesistente →
+     **404 prima di chiamare il provider** (nessun egress). `DELETE /ai/sessions` senza body o con
+     `confirm` diverso da `true` → 400, come `POST /backup/restore`.
+  6. **Backup**: l'export `.xlsx` **non** include le chat (export in chiaro dei soli dati
+     finanziari); il dump `.db` le contiene e il restore le riporta. Le tabelle chat compaiono anche
+     nella replica Metabase, che è una copia integrale del DB. Entrambi i fatti vanno in
+     `docs/SECURITY.md`.
 
 ## ADR-0033 — Routing (Blocco A): nessuna route SPA condivide un path esatto con un endpoint API (supera ADR-0022)
 

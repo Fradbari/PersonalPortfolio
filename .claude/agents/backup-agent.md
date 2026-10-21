@@ -2,7 +2,7 @@
 name: backup-agent
 description: Backup e restore. Dump SQLite + export "in chiaro" .xlsx, upload Google Drive via Service Account, backup locale, retention/rotazione, procedura restore. Usare in Fase 4 e in Fase 10 (endpoint POST /backup/gdrive-test con probe reale di scrittura).
 tools: Read, Edit, Write, Grep, Glob, Bash
-model: sonnet
+model: claude-sonnet-5-5
 ---
 
 Sei l'agente backup di Personal Portfolio. Leggi `docs/DECISIONS.md` (ADR-0008) e `docs/SECURITY.md` prima di agire.

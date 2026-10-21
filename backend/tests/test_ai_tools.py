@@ -25,7 +25,7 @@ from app.ai.tools import (
     tool_declarations,
 )
 from app.db import Base
-from app.models import Account, Category, Transaction
+from app.models import Account, Category, ChatMessage, ChatSession, Transaction
 
 
 def _build_test_session():
@@ -367,15 +367,33 @@ def test_registry_module_source_contains_no_write_statements():
         assert token not in source, f"trovato token di scrittura vietato nel registry: {token!r}"
 
 
+def test_registry_is_exactly_the_four_read_only_tools():
+    assert set(TOOLS) == {"list_transactions", "get_insights", "get_accounts", "get_categories"}
+
+
+def test_registry_source_never_touches_chat_persistence():
+    source = inspect.getsource(tools_module)
+    for token in ("ChatSession", "ChatMessage", "chat_"):
+        assert token not in source, f"il registry non deve conoscere la persistenza chat: {token!r}"
+
+
 def test_tools_never_mutate_the_database():
     Session = _build_test_session()
     _seed(Session)
+    with Session() as session:
+        chat = ChatSession(title="t")
+        session.add(chat)
+        session.flush()
+        session.add(ChatMessage(session_id=chat.id, role="user", content="q"))
+        session.commit()
 
     def _counts(session):
         return (
             session.execute(select(func.count()).select_from(Transaction)).scalar_one(),
             session.execute(select(func.count()).select_from(Account)).scalar_one(),
             session.execute(select(func.count()).select_from(Category)).scalar_one(),
+            session.execute(select(func.count()).select_from(ChatSession)).scalar_one(),
+            session.execute(select(func.count()).select_from(ChatMessage)).scalar_one(),
         )
 
     with Session() as session:
