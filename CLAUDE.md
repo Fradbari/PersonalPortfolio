@@ -42,11 +42,11 @@ F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico 
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64 ·
 **F8-F14 roadmap in 3 blocchi**.
 
-**Fase corrente: BLOCCO C — T10 + review finale da fare** (F10 test Drive · F14 storicità chat AI,
-branch `f10-f14-drive-chat` pushato, non mergiato). T1-T9 + T7b fatti, CP1/CP2/CP3 chiusi, 331 test
-verdi, `alembic heads` = `0006`. Prossimo passo: T10 → review finale whole-branch (claude-opus-5-5)
-→ fix → ⛔ ok utente → merge. Ripartire dal "Prompt di ripresa" in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**Fase corrente: BLOCCO C MERGIATO SU `master` (`55e2b79`, 2026-10-21) PRIMA di T10, su richiesta
+dell'utente** (F10 test Drive · F14 storicità chat AI). T1-T9 + T7b fatti, CP1/CP2/CP3 chiusi, 331
+test verdi, `alembic heads` = `0006`. Prossimo passo: T10 + review finale whole-branch
+(claude-opus-5-5, su `git diff 749d86c...HEAD`) su un branch nuovo da `master` → fix → ⛔ ok utente →
+merge. Ripartire dal "Prompt di ripresa" in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 **Blocco B chiuso e mergiato su `master`** (F11 manuale + F12 filtri/FTS5 + F13 dashboard).
 Branch `f11-f12-f13-transactions` (T0-T16, CP1/CP1b/CP2 superati, review finale whole-branch con
@@ -94,7 +94,7 @@ ADR-0026 → ADR-0033):
   (`ENABLE_FTS5`) + virtual table fts5 di prova (mai `SELECT fts5_version()`: non esiste),
   eseguito **come primo task** (go/no-go) e ripetuto prima del merge (GO). Spec e piano di dettaglio
   approvati 2026-07-25; produce **ADR-0034** + rettifiche a 0026/0028/0029/0030.
-- **Blocco C** (implementato, T10 + review da fare) `f10-f14-drive-chat` — F10 `POST /backup/gdrive-test` (probe write→read→delete) ·
+- **Blocco C** (mergiato `55e2b79`, T10 + review da fare) `f10-f14-drive-chat` — F10 `POST /backup/gdrive-test` (probe write→read→delete) ·
   F14 storicità chat AI (`chat_sessions`/`chat_messages`, modello sempre read-only).
 
 Ordine vincolante: **A prima di B**. C è indipendente funzionalmente, **non** nella catena Alembic.

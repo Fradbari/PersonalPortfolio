@@ -504,30 +504,34 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
-Fase corrente: BLOCCO C IMPLEMENTATO, DA CHIUDERE (F10 test Drive · F14 storicità chat AI), branch
-f10-f14-drive-chat pushato su origin, NON mergiato. T1-T9 + T7b fatti; CP1, CP2, CP3 chiusi.
-Commit chiave: 9d276a1 (T7b) · 07c2df3 (T8) · 4994192 (T9) · ece6dfe (api_disabled) · d8a7de7
-(--destructive dark). 331 test backend verdi, `alembic heads` = 0006, phase ancora "13".
+Fase corrente: BLOCCO C MERGIATO SU master PRIMA DI T10 (merge 55e2b79, 2026-10-21, su richiesta
+dell'utente). Branch f10-f14-drive-chat su origin; master NON ancora pushato su origin (verificare
+con `git status` / `git log origin/master..master` e chiedere all'utente prima di pushare).
+T1-T9 + T7b fatti; CP1, CP2, CP3 chiusi. Commit chiave: 9d276a1 (T7b) · 07c2df3 (T8) · 4994192
+(T9) · ece6dfe (api_disabled) · d8a7de7 (--destructive dark). 331 test backend verdi su master,
+`alembic heads` = 0006, phase ancora "13".
 
 PRIMO PASSO: leggere "STATO PER RIPRESA" in cima a .superpowers/sdd/progress.md (ledger locale,
 gitignored: commit, test, rettifiche ADR, debiti, vincoli). Poi spec e piano del blocco:
 - docs/superpowers/specs/2026-10-14-f10-f14-detail-spec.md
 - docs/superpowers/plans/f10-f14-implementation-plan.md (sezione T10 e "Review finale")
 
-PROSSIMI PASSI, in quest'ordine:
+PROSSIMI PASSI, in quest'ordine, su un branch nuovo creato da master (es. `blocco-c-t10`):
 1. T10 (piano §T10): phase/version → "14" / 0.1.0-phase14 + test; SECURITY.md (chat nei backup e
    nella replica, tabella esiti F10 → rimedio incluso api_disabled/quota_exceeded, POST /backup
    sanitizzato); debiti in ARCHITECTURE.md (D4 logging INFO invisibile, rimedio Drive); gate arm64
    sull'immagine finale (FTS5 nella forma corretta, alembic 0001→0006 su DB vuoto scratch,
    /health phase "14"); grep finali dopo `git add -A`. Il cleanup dell'ambiente CP3 è GIÀ FATTO.
-2. Review finale whole-branch con subagent claude-opus-5-5 (dichiararlo) su git diff master...HEAD.
+2. Review finale whole-branch con subagent claude-opus-5-5 (dichiararlo) sull'intero Blocco C:
+   `git diff 749d86c...HEAD` (749d86c = master prima del merge di C), non solo sul branch di T10.
 3. Fix → suite, alembic heads, build frontend.
-4. ⛔ STOP: ok esplicito dell'utente PRIMA del merge.
+4. ⛔ STOP: ok esplicito dell'utente PRIMA del merge del branch di T10 su master.
 
-AVVISO DB REALE: data/portfolio.db è a 0003 (il container pp-backend in esecuzione è a phase 9).
-Dopo il merge, il primo avvio del container ricostruito lo porterà a 0006 (CMD = alembic upgrade
-head). Farlo SOLO dopo un backup preventivo del DB e dopo l'ok dell'utente. backup_on_startup nel
-DB reale = false, backup_retention = 3 (letti 2026-10-21).
+AVVISO DB REALE: data/portfolio.db è a 0003 (il container pp-backend in esecuzione è a phase 9,
+immagine pre-merge). Il codice su master è già a 0006: il primo avvio di un container ricostruito
+da master porterà il DB reale a 0006 (CMD = alembic upgrade head). NON fare `docker compose
+build`/`up --build` su master prima di un backup preventivo del DB e dell'ok dell'utente.
+backup_on_startup nel DB reale = false, backup_retention = 3 (letti 2026-10-21).
 
 Vincoli dell'ambiente:
 - .env e secrets/ sono esclusi dalla content policy aziendale per l'agente: mai leggerli, mai
