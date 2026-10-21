@@ -1,14 +1,14 @@
 # Frontend — Personal Portfolio
 
-UI React del progetto Personal Portfolio (7 pagine: Dashboard, Transazioni, Import, Categorie
-pending, Conti, Backup, Assistente AI). In produzione **non gira standalone**: viene buildata
+UI React del progetto Personal Portfolio (8 pagine: Dashboard, Transazioni, Import, Categorie
+pending, Conti, Backup, Assistente AI, Impostazioni). In produzione **non gira standalone**: viene buildata
 (`vite build`) e servita dal container FastAPI (`backend/`) sulla stessa porta 8000 — vedi
 [ADR-0019](../docs/DECISIONS.md). La porta 5173 sotto è solo per sviluppo locale (`npm run dev`).
 
-## Stato fase corrente (2026-10-14)
+## Stato fase corrente (2026-10-21)
 F5 (questa UI) completata. F0-F6 + F-DEBT completate; F7 (Raspberry Pi arm64) ◐ parcheggiata in
 attesa hardware. Blocchi A (F8-F9) e B (F11-F13) chiusi e mergiati su `master`. **Fase corrente:
-Blocco C NON avviato** (F10 backup GDrive + F14 chat AI). Guida funzionale utente:
+Blocco C mergiato su `master` (`55e2b79`) prima di T10** (F10 backup GDrive + F14 chat AI). Guida funzionale utente:
 [../docs/USER_GUIDE.md](../docs/USER_GUIDE.md). Guida
 avvio: [../docs/GETTING_STARTED.md](../docs/GETTING_STARTED.md).
 
@@ -16,7 +16,7 @@ avvio: [../docs/GETTING_STARTED.md](../docs/GETTING_STARTED.md).
 
 Pianificato il 2026-07-21 (spec
 [../docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md](../docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md),
-ADR-0026 → ADR-0032), ora implementato.
+ADR-0026 → ADR-0034), ora implementato.
 
 **Sistema di temi (F8, ADR-0026).** Prima di F8 il tema scuro non esisteva: `tailwind.config.js`
 non dichiarava `darkMode`, `index.css` era di tre righe senza una sola CSS variable, e c'erano 31
@@ -40,7 +40,7 @@ fase. La CLI shadcn resta **non inizializzata** (nessun `components.json`): i co
 
 **Pagine e funzionalità nuove**
 
-- **`/settings`** (ottava pagina, F9): unico punto di configurazione dell'app — nessuna altra pagina
+- **`/impostazioni`** (ottava pagina, F9; dati da `GET/PUT /settings`, ADR-0033): unico punto di configurazione dell'app — nessuna altra pagina
   costruisce un proprio pannello di impostazioni. I secret compaiono solo come badge "configurato /
   non configurato" con la riga `.env` da usare, **mai come campo di input**. Accanto a ogni campo va
   indicato quando la modifica ha effetto (subito o al riavvio).
@@ -52,6 +52,8 @@ fase. La CLI shadcn resta **non inizializzata** (nessun `components.json`): i co
   filtri diventa un permalink.
 - **Pannelli dashboard** (F13): saldo cumulato, cash flow mensile, donut spese per categoria, trend
   risparmio, confronto mese su mese, quattro KPI card. Tutti sul `chartConfig` condiviso.
+- **Blocco C** (F10/F14): test connessione Drive al click e banner "Ultimo backup" su
+  `/backup-restore`; storico chat su `/assistente-ai` (sessione nell'URL, "Azzera storico" a 2 step).
 
 **Vincolo di nomenclatura**: la parola "patrimonio" non compare in UI, tooltip, titoli o nomi di
 campo. Il dato disponibile è un **saldo cumulato** di entrate e uscite — non esistono asset né

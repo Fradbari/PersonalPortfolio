@@ -12,7 +12,7 @@ app/
   config.py            settings (pydantic-settings)
   backup.py            orchestrazione backup (dump SQLite + export .xlsx)
   drive.py              integrazione Google Drive (Service Account)
-  routers/              endpoint FastAPI (accounts, ai, backup, categories, imports, insights, transactions)
+  routers/              endpoint FastAPI (accounts, ai, backup, categories, imports, insights, settings, transactions)
   services/              logica di dominio (es. insights.py)
   ai/                     provider AI (Gemini), tool registry read-only
   ingestion/               parser My Finance e master sheet, riconciliazione/dedup
@@ -61,7 +61,8 @@ pytest
 
 Pianificato il 2026-07-21 (spec
 [../docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md](../docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md),
-ADR-0026 → ADR-0034). F8-F9 e F11-F13 implementate; restano F10 e F14 (Blocco C).
+ADR-0026 → ADR-0034). F8-F9 e F11-F13 implementate; F10 e F14 (Blocco C) implementate e mergiate (`55e2b79`), restano T10 e
+review finale.
 
 **Endpoint**
 
@@ -69,17 +70,18 @@ ADR-0026 → ADR-0034). F8-F9 e F11-F13 implementate; restano F10 e F14 (Blocco 
 |---|---|---|
 | `GET` / `PUT /settings` | F9 (fatto) | solo chiavi in whitelist; i secret escono come `{configured: bool}`, mai come valore |
 | `POST /transactions` | F11 (fatto) | inserimento manuale: `source='manual'`, `import_batch_id=NULL` |
-| `POST /backup/gdrive-test` | F10 (da fare) | probe reale write→read→delete; credenziali lette da `config.py`, mai dal body né in risposta |
-| `GET /ai/sessions`, `GET /ai/sessions/{id}` | F14 (da fare) | elenco e messaggi delle conversazioni |
-| `DELETE /ai/sessions/{id}` | F14 (da fare) | una sola conversazione, senza conferma |
-| `DELETE /ai/sessions` | F14 (da fare) | azzera tutto lo storico, `confirm: true` obbligatorio |
+| `GET /backup/last` | F10 (fatto) | ultimo esito backup in memoria, messaggi sanitizzati |
+| `POST /backup/gdrive-test` | F10 (fatto) | probe reale write→read→delete; credenziali lette da `config.py`, mai dal body né in risposta |
+| `GET /ai/sessions`, `GET /ai/sessions/{id}` | F14 (fatto) | elenco e messaggi delle conversazioni |
+| `DELETE /ai/sessions/{id}` | F14 (fatto) | una sola conversazione, senza conferma |
+| `DELETE /ai/sessions` | F14 (fatto) | azzera tutto lo storico, `confirm: true` obbligatorio |
 
 `GET /transactions` ha dal Blocco B (F12) i filtri `date_from`, `date_to`, `amount_min`, `amount_max`,
 `q` (full-text) e `group_by`; `year_month` resta per compatibilità.
 
 **Migrazioni** — `settings` key/value (F9, 0003) · indici `transactions` (F12, 0004) ·
-`transactions_fts` FTS5 + 3 trigger (F12, 0005) · prevista `chat_sessions` + `chat_messages` (F14,
-0006 su 0005). F10, F11 e F13 **non** producono revision.
+`transactions_fts` FTS5 + 3 trigger (F12, 0005) · `chat_sessions` + `chat_messages` (F14,
+0006 su 0005, head attuale). F10, F11 e F13 **non** producono revision.
 
 **Requisito FTS5 (F12).** La migrazione della ricerca full-text richiede un SQLite compilato con
 FTS5. Guardrail: (1) il `lifespan` rifiuta l'avvio con errore esplicito se l'SQLite in esecuzione
@@ -99,9 +101,10 @@ avvio** del backend se la tabella esiste; se manca, `GET /transactions?q=` rispo
 - Guida avvio: [../docs/GETTING_STARTED.md](../docs/GETTING_STARTED.md)
 - Guida funzionale endpoint: [../docs/USER_GUIDE.md](../docs/USER_GUIDE.md)
 
-## Stato fase corrente (2026-10-14)
+## Stato fase corrente (2026-10-21)
 
 F0-F6 + F-DEBT completate. **F7 ◐ parcheggiata in attesa hardware, non bloccante.**
 Blocchi A (F8-F9) e B (F11-F13) chiusi e mergiati su `master` (B = `ab9c360`).
-**Fase corrente: Blocco C NON avviato** (F10 backup GDrive + F14 storicità chat AI).
+**Fase corrente: Blocco C mergiato su `master` (`55e2b79`) prima di T10** (F10 backup GDrive + F14
+storicità chat AI); 331 test verdi, `alembic heads` = `0006`.
 Dettagli: [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).

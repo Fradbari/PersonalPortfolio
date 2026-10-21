@@ -15,7 +15,11 @@ Subagent-Driven Development (SDD).
 | F4 — Backup automation | [2026-07-14-backup-automation-design.md](specs/2026-07-14-backup-automation-design.md) | [2026-07-14-backup-automation.md](plans/2026-07-14-backup-automation.md) | ☑ |
 | F5 — UI React | [2026-07-15-f5-react-ui-design.md](specs/2026-07-15-f5-react-ui-design.md) | [2026-07-15-f5-react-ui.md](plans/2026-07-15-f5-react-ui.md) | ☑ |
 | F6 — AI NL query | [2026-07-18-f6-ai-nl-query-design.md](specs/2026-07-18-f6-ai-nl-query-design.md) | [2026-07-18-f6-ai-nl-query.md](plans/2026-07-18-f6-ai-nl-query.md) | ☑ |
-| F7 — Raspberry arm64 | [2026-07-20-f7-raspberry-arm64-design.md](specs/2026-07-20-f7-raspberry-arm64-design.md) | [2026-07-20-f7-raspberry-arm64.md](plans/2026-07-20-f7-raspberry-arm64.md) | ◐ in corso (2026-07-20), attesa hardware |
+| F7 — Raspberry arm64 | [2026-07-20-f7-raspberry-arm64-design.md](specs/2026-07-20-f7-raspberry-arm64-design.md) | [2026-07-20-f7-raspberry-arm64.md](plans/2026-07-20-f7-raspberry-arm64.md) | ◐ parcheggiata, attesa hardware |
+| Roadmap F8-F14 | [2026-07-21-f8-f14-roadmap-design.md](specs/2026-07-21-f8-f14-roadmap-design.md) | — | ☑ |
+| Blocco A — F8-F9 | [2026-07-21-f8-f9-detail-spec.md](specs/2026-07-21-f8-f9-detail-spec.md) | [f8-f9-implementation-plan.md](plans/f8-f9-implementation-plan.md) | ☑ |
+| Blocco B — F11-F13 | [2026-07-25-f11-f12-f13-detail-spec.md](specs/2026-07-25-f11-f12-f13-detail-spec.md) | [f11-f12-f13-implementation-plan.md](plans/f11-f12-f13-implementation-plan.md) | ☑ |
+| Blocco C — F10+F14 | [2026-10-14-f10-f14-detail-spec.md](specs/2026-10-14-f10-f14-detail-spec.md) | [f10-f14-implementation-plan.md](plans/f10-f14-implementation-plan.md) | ◐ mergiato, T10 da fare |
 
 ## Nota
 

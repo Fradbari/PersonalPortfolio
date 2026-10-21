@@ -26,7 +26,7 @@ dopo un restore va ricostruito l'indice FTS5 (ADR-0029).
 
 ## react-ui-agent.md
 Frontend React+Vite+TS (TanStack Query, Tailwind/shadcn, Recharts), endpoint FastAPI read+write, pagine dashboard/transazioni/import/categorie pending/conti/backup/assistente AI; da F8 anche temi, settings, form manuale, filtri e pannelli.
-**Fasi**: F5, F8, F9, F11, F12, F13. **Vincoli**: affianca Metabase, non lo sostituisce (ADR-0004);
+**Fasi**: F5, F8, F9, F10 (UI), F11, F12, F13, F14 (UI). **Vincoli**: affianca Metabase, non lo sostituisce (ADR-0004);
 nessuna Alembic revision per questo layer; nessun colore fuori dal `chartConfig` condiviso;
 Tailwind resta v3 e la CLI shadcn resta non inizializzata (ADR-0026);
 ogni impostazione esposta passa da `/settings` (ADR-0027).
@@ -42,13 +42,13 @@ Layer AI: adapter provider-agnostico (unico adapter Gemini), tool registry read-
 |---|---|---|---|
 | **A — Fondamenta UI** | `f8-f9-theme-settings` | F8, F9 | react-ui-agent, schema-agent |
 | **B — Superficie transazioni** | `f11-f12-f13-transactions` | F11, F12, F13 | react-ui-agent, schema-agent, dashboard-agent |
-| **C — Integrazioni** | `f10-f14-drive-chat` | F10, F14 | backup-agent, ai-agent, schema-agent |
+| **C — Integrazioni** | `f10-f14-drive-chat` | F10, F14 | backup-agent, ai-agent, schema-agent, react-ui-agent |
 
 Ordine vincolante: **A prima di B**. C è indipendente funzionalmente, ma **non** nella catena Alembic.
 
 ## Note
 - Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.
-- Fase corrente (2026-10-14): **Blocco C NON avviato** (F10 backup GDrive + F14 storicità chat AI; agenti
-  backup-agent, ai-agent, schema-agent). Blocchi A e B chiusi e mergiati su master. F7 ◐ parcheggiata in attesa
+- Fase corrente (2026-10-21): **Blocco C mergiato su master (`55e2b79`) prima di T10** (F10 backup GDrive +
+  F14 storicità chat AI; agenti backup-agent, ai-agent, schema-agent, react-ui-agent). Blocchi A e B chiusi e mergiati su master. F7 ◐ parcheggiata in attesa
   hardware, non bloccante — nessun agente dedicato, gestita da subagent-driven-development generico.
 - Guida funzionale (cosa fa ogni fase per l'utente finale): [../../docs/USER_GUIDE.md](../../docs/USER_GUIDE.md)
