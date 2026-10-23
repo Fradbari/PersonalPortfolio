@@ -49,8 +49,8 @@ dall'app, script `scripts/gdrive_oauth_setup.py` eseguito dall'utente sul propri
 `sa_*` → `auth_*`; blacklist `GOOGLE_SA_KEY_PATH` → `GOOGLE_OAUTH_TOKEN_PATH`; hook pre-commit esteso
 ai marcatori quotati dei token. T1-T8 su branch, **CP2 dal vivo superato il 2026-10-23** (probe `ok`,
 upload su Drive, rotazione retention, probe `ok` dopo lo spostamento della cartella), review finale
-Opus 5.5 fatta; **restano il merge (solo su ok utente), la revoca della vecchia chiave SA e
-l'esito dell'avviso "app non verificata" (non registrato)**; nessuna revision Alembic (`alembic heads` = `0006`). Stato del Blocco C sotto.
+Opus 5.5 fatta; **mergiato in `master` (`e40d381`, non pushato); resta la revoca della vecchia chiave SA
+(utente); l'avviso "app non verificata" non è comparso**; nessuna revision Alembic (`alembic heads` = `0006`). Stato del Blocco C sotto.
 
 **Fase precedente: BLOCCO C CHIUSO, MERGIATO E PUSHATO; AMBIENTE RESETTATO A `0006` VUOTO** (F10 test
 Drive · F14 storicità chat AI). Codice di C su `master` da `55e2b79`; T10 + fix della review finale con

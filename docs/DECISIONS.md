@@ -1386,7 +1386,7 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
      7 giorni e il backup smetterebbe di funzionare in silenzio dopo una settimana. Con soli scope
      non-sensitive non serve la verifica dell'app per pubblicare; nessun logo caricato (il logo
      richiede la verifica del brand). L'avviso "app non verificata" è previsto solo per scope
-     sensitive/restricted: con `drive.file` non è atteso (esito al CP2 non registrato).
+     sensitive/restricted: con `drive.file` non è atteso (confermato al CP2: l'avviso non è comparso).
   5. **Una sola credenziale: la Service Account è dismessa.** Rimossi `service_account` da
      `drive.py`, `GOOGLE_SA_KEY_PATH` da `config.py`, `.env.example`, UI e documenti operativi.
      Nuova variabile `GOOGLE_OAUTH_TOKEN_PATH`, **default vuoto**: nessun path della cartella dei
@@ -1459,5 +1459,5 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   rotazione della **retention** su Drive con `backup_retention` = 1 corretta (poi ripristinato; la
   rotazione del *token* non è stata provata dal vivo); dopo lo spostamento della
   cartella dentro un'altra il probe resta `ok` (conferma il p.3: `drive.file` è legato al file, non
-  alla posizione). Avviso "app non verificata" alla schermata di consenso: **esito non ancora
-  registrato** (atteso assente con soli scope non-sensitive, p.4).
+  alla posizione). Avviso "app non verificata" alla schermata di consenso: **non comparso**
+  (app risultata registrata), come atteso con soli scope non-sensitive (p.4): domanda chiusa.

@@ -194,7 +194,7 @@ Backup preventivo del DB reale eseguito prima del rebuild (`data/archive/portfol
 integrity_check `ok`, 514 transazioni · 3 conti · 20 categorie, revisione `0006`). Esiti riportati
 dall'utente: passi 3-4 (probe `ok`) · 5 (`drive_uploaded: true`, coppia nella cartella) · 6 (rotazione su
 Drive corretta, `backup_retention` ripristinato) · 7 (probe `ok` dopo lo spostamento della cartella) ·
-passo 8 (avviso "app non verificata"): **non registrato**. Passo 9 (revoca chiave SA, rimozione
+passo 8 (avviso "app non verificata"): **non comparso** (app registrata). Passo 9 (revoca chiave SA, rimozione
 condivisione) non ancora fatto: dopo il task "rimozione completa SA". Durante il CP2 è emerso che il
 `.env` non era stato aggiornato al primo tentativo (`GOOGLE_OAUTH_TOKEN_PATH` assente nel container):
 diagnosticato con controlli booleani nel container, senza leggere `.env`.
