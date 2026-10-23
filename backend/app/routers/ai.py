@@ -36,6 +36,7 @@ from app.ai.provider import (
     get_provider,
 )
 from app.db import get_session
+from app.drive import redact
 from app.models import ChatMessage, ChatSession
 
 router = APIRouter(tags=["ai"])
@@ -47,7 +48,7 @@ _NOT_CONFIGURED_MESSAGE = "layer AI non configurato: imposta AI_PROVIDER, AI_API
 def _raise_http_for(exc: AIProviderError) -> NoReturn:
     if isinstance(exc, AIProviderNotConfigured):
         raise HTTPException(status_code=400, detail=_NOT_CONFIGURED_MESSAGE) from exc
-    raise HTTPException(status_code=502, detail=str(exc)) from exc
+    raise HTTPException(status_code=502, detail=redact(str(exc))) from exc
 
 
 def get_ai_provider() -> AIProvider:
@@ -107,7 +108,18 @@ def query(
     ]
 
     now = datetime.utcnow()
-    chat = session.get(ChatSession, body.session_id) if body.session_id is not None else None
+    # Rilettura che bypassa davvero l'identity map (`populate_existing` + SELECT,
+    # non `session.get`): se la sessione e' stata cancellata da un'altra richiesta
+    # mentre il provider rispondeva, un oggetto ORM ancora vivo nella identity map
+    # farebbe credere che esista (poi 500 al flush). Comportamento approvato al CP1:
+    # nessun errore, la risposta finisce in una NUOVA sessione.
+    chat = None
+    if body.session_id is not None:
+        chat = session.scalars(
+            select(ChatSession)
+            .where(ChatSession.id == body.session_id)
+            .execution_options(populate_existing=True)
+        ).one_or_none()
     if chat is None:
         title = body.question.strip()
         if len(title) > _TITLE_MAX:
