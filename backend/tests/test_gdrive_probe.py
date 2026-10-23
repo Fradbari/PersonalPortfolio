@@ -333,14 +333,13 @@ def test_error_details_string_gives_no_reason():
 def test_redact_literal_multiple_overlapping_and_empty(monkeypatch):
     monkeypatch.setattr(settings, "gdrive_backup_folder_id", "abc")
     monkeypatch.setattr(settings, "google_oauth_token_path", "/s/abc/tok.json")
-    monkeypatch.setattr(settings, "google_sa_key_path", "")
     monkeypatch.setattr(settings, "ai_api_key", "")
     out = redact("p=/s/abc/tok.json f=abc a.c")
     assert out == "p=<google_oauth_token_path> f=<gdrive_backup_folder_id> a.c"
 
 
 def test_redact_empty_values_leave_text_unchanged(monkeypatch):
-    for key in ("gdrive_backup_folder_id", "google_oauth_token_path", "google_sa_key_path", "ai_api_key"):
+    for key in ("gdrive_backup_folder_id", "google_oauth_token_path", "ai_api_key"):
         monkeypatch.setattr(settings, key, "")
     assert redact("abc") == "abc"
 
@@ -348,7 +347,6 @@ def test_redact_empty_values_leave_text_unchanged(monkeypatch):
 def test_redact_ai_api_key(monkeypatch):
     monkeypatch.setattr(settings, "gdrive_backup_folder_id", "")
     monkeypatch.setattr(settings, "google_oauth_token_path", "")
-    monkeypatch.setattr(settings, "google_sa_key_path", "")
     monkeypatch.setattr(settings, "ai_api_key", "K3Y")
     assert redact("x K3Y y") == "x <ai_api_key> y"
 

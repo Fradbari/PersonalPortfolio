@@ -94,8 +94,6 @@ def redact(text: str) -> str:
     secrets = {
         "gdrive_backup_folder_id": settings.gdrive_backup_folder_id,
         "google_oauth_token_path": settings.google_oauth_token_path,
-        # Transitorio: lo rimuove T2 insieme al campo di config (ADR-0035).
-        "google_sa_key_path": settings.google_sa_key_path,
         "ai_api_key": settings.ai_api_key,
     }
     for name, value in sorted(secrets.items(), key=lambda kv: len(kv[1] or ""), reverse=True):
