@@ -161,6 +161,21 @@ ed è abbassabile da `/settings` senza toccare il codice.
 tutti i messaggi dal database locale. Richiede una conferma esplicita perché non c'è modo di
 ricostruire cosa è andato perso.
 
+**Ma "Azzera storico" agisce solo sul database vivo.** Due copie delle chat restano dove sono:
+
+- **I backup già creati** (locali e su Drive) contengono le chat com'erano al momento del backup.
+  Sopravvivono all'azzeramento **finché la retention (`backup_retention`) non li ruota** fuori: per
+  eliminarle prima va cancellato a mano il backup, in locale e su Drive. Un restore da un backup
+  precedente all'azzeramento le riporta indietro, salvo il caso del backup pre-`0006`, che non ha le
+  tabelle chat e le lascia vuote.
+- **La replica read-only di Metabase** è una copia intera del database (ADR-0004): include
+  `chat_sessions` e `chat_messages`, quindi chiunque abbia accesso a Metabase può interrogarle con
+  una domanda SQL. La replica si rigenera solo dopo un import o un restore, **non** dopo
+  "Azzera storico" né dopo l'eliminazione di una singola conversazione: le chat cancellate restano
+  leggibili in Metabase fino al refresh successivo.
+  Se la cosa conta, rigenera la replica con un import o un restore (debito: un refresh esplicito
+  dopo l'azzeramento non esiste, vedi ARCHITECTURE.md).
+
 **Cosa non cambia neanche qui.** L'egress avviene sempre e solo su **submit esplicito**: nessuna
 domanda parte da sola, nessuna sincronizzazione in background. La persistenza è scritta dal router
 del backend, **mai da un tool**: il modello continua a non avere alcuna operazione di scrittura
@@ -205,3 +220,38 @@ probe non interferisce mai con la rotazione.
 Le credenziali non passano dalla richiesta: `GDRIVE_BACKUP_FOLDER_ID` e `GOOGLE_SA_KEY_PATH` sono
 letti dal backend dalla propria configurazione e **non compaiono nella risposta**, nemmeno dentro un
 messaggio d'errore — gli errori di Google che contengono l'id vengono sanitizzati prima di uscire.
+
+#### Esiti del test e rimedio
+
+`POST /backup/gdrive-test` risponde sempre con uno di questi dodici esiti (`outcome`), mai con il
+testo grezzo di Google. Il campo `message` è fisso per esito.
+
+| `outcome` | Cosa significa | Rimedio |
+|---|---|---|
+| `ok` | scrittura, lettura e cancellazione riuscite | nessuno |
+| `sa_missing` | il file della Service Account non è montato nel container | verifica `GOOGLE_SA_KEY_PATH` e il bind mount di `secrets/` |
+| `sa_invalid` | il file non è una chiave JSON valida | rigenera la chiave dalla console Google |
+| `folder_id_missing` | `GDRIVE_BACKUP_FOLDER_ID` vuoto: nessuna scrittura eseguita | imposta l'ID in `.env` (vedi sopra) |
+| `sa_auth_failed` | 401 o token rifiutato: chiave revocata o disabilitata | genera una chiave nuova |
+| `folder_not_found` | 404 sulla cartella | l'ID è errato o la cartella non è condivisa con la Service Account |
+| `permission_denied` | 403 generico | condividi la cartella come **Editor** |
+| `api_disabled` | 403 `accessNotConfigured`: Drive API spenta nel progetto GCP | abilita «Google Drive API» in «API e servizi → Libreria», attendi qualche minuto |
+| `quota_exceeded` | 403 `storageQuotaExceeded` (o quota/rate limit) | **vedi sotto** |
+| `timeout` | nessuna risposta entro 30 s | riprova |
+| `network_error` | DNS o connessione | controlla la rete del container |
+| `unexpected` | qualunque altro caso | consulta i log (`docker logs`): riga `Probe Drive fallito in <stage>` |
+
+**`quota_exceeded` non si risolve con un permesso.** Una Service Account **non ha quota di storage
+propria**: in un Drive personale (My Drive) Google rifiuta la creazione di file da parte sua anche se
+la cartella è condivisa come Editor. Il rimedio vero è spostare i backup in un **Shared Drive**
+(richiede Google Workspace) oppure autenticarsi con **OAuth utente** al posto della Service Account.
+È una modifica dell'architettura di F4 e ha un **ADR separato, dopo il Blocco C**: finché non c'è, il
+backup locale funziona e il test Drive segnala onestamente `quota_exceeded`.
+
+#### `POST /backup` è sanitizzato (D7)
+
+Prima di F10 il campo `drive_error` di `POST /backup` poteva riportare il testo di un'eccezione
+Google, che a volte include l'ID della cartella. Ora il messaggio è lo stesso fisso del test
+(`outcome_message`), passato da `redact()`, e il log applicativo contiene solo tipo di eccezione,
+stage, status e `reason`. La forma della risposta è invariata. Un test controlla che l'ID cartella
+non compaia nella risposta di **entrambi** gli endpoint né nei log.

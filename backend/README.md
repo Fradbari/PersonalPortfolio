@@ -61,8 +61,8 @@ pytest
 
 Pianificato il 2026-07-21 (spec
 [../docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md](../docs/superpowers/specs/2026-07-21-f8-f14-roadmap-design.md),
-ADR-0026 → ADR-0034). F8-F9 e F11-F13 implementate; F10 e F14 (Blocco C) implementate e mergiate (`55e2b79`), restano T10 e
-review finale.
+ADR-0026 → ADR-0034). F8-F9 e F11-F13 implementate; F10 e F14 (Blocco C) implementate e mergiate (`55e2b79`); T10 e review finale
+chiusi sul branch `blocco-c-t10` (merge in attesa di ok).
 
 **Endpoint**
 
@@ -101,10 +101,11 @@ avvio** del backend se la tabella esiste; se manca, `GET /transactions?q=` rispo
 - Guida avvio: [../docs/GETTING_STARTED.md](../docs/GETTING_STARTED.md)
 - Guida funzionale endpoint: [../docs/USER_GUIDE.md](../docs/USER_GUIDE.md)
 
-## Stato fase corrente (2026-10-21)
+## Stato fase corrente (2026-10-23)
 
 F0-F6 + F-DEBT completate. **F7 ◐ parcheggiata in attesa hardware, non bloccante.**
 Blocchi A (F8-F9) e B (F11-F13) chiusi e mergiati su `master` (B = `ab9c360`).
-**Fase corrente: Blocco C mergiato su `master` (`55e2b79`) prima di T10** (F10 backup GDrive + F14
-storicità chat AI); 331 test verdi, `alembic heads` = `0006`.
+**Fase corrente: Blocco C chiuso sul branch `blocco-c-t10`, merge su `master` in attesa di ok** (F10
+backup GDrive + F14 storicità chat AI; codice già su `master` da `55e2b79`); `phase` `"14"`, 347 test
+verdi, `alembic heads` = `0006`.
 Dettagli: [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).

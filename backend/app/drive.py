@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import httplib2
-from google.auth.exceptions import RefreshError
+from google.auth.exceptions import RefreshError, TransportError
 from google.oauth2 import service_account
 from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
@@ -107,7 +107,15 @@ def classify_drive_error(exc: Exception, stage: str) -> tuple[str, int | None, s
             return "permission_denied", status, reason
         return "unexpected", status, reason
     if isinstance(exc, RefreshError):
+        # 5xx transitorio del token endpoint: RefreshError(retryable=True), non una chiave revocata.
+        if getattr(exc, "retryable", False):
+            return "network_error", None, None
         return "sa_auth_failed", None, None
+    if isinstance(exc, TransportError):
+        # Le credenziali si ricostruiscono a ogni probe: la prima chiamata di rete e' il refresh
+        # del token, dove google_auth_httplib2 incapsula HttpLib2Error/HTTPException in TransportError.
+        # Non e' sottoclasse di RefreshError (entrambe di GoogleAuthError): nessun conflitto d'ordine.
+        return "network_error", None, None
     if isinstance(exc, TimeoutError):
         return "timeout", None, None
     if isinstance(exc, (httplib2.ServerNotFoundError, ConnectionError, socket.gaierror)):

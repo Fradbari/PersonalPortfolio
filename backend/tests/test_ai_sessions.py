@@ -6,7 +6,7 @@ import json
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -121,6 +121,56 @@ def test_provider_errors_persist_nothing(env, error, status):
     assert client.post("/ai/query", json={"question": "q", "session_id": sid}).status_code == status
     assert _count(Session, ChatSession) == 1
     assert _count(Session, ChatMessage) == 2
+
+
+def test_session_deleted_during_answer_creates_new_session_even_with_live_orm_ref(env):
+    """I2: sessione cancellata da un'altra Session MENTRE il provider risponde ->
+    nessun errore, risposta persistita in una sessione nuova. Il provider tiene un
+    riferimento forte all'oggetto ORM nella Session di richiesta: con `session.get`
+    la rilettura lo rivedrebbe dalla identity map (500 al flush)."""
+    client, fake, Session = env
+    sid = client.post("/ai/query", json={"question": "uno"}).json()["session_id"]
+
+    held = []
+
+    def answer(question, session, history=None):
+        held.append(session.get(ChatSession, sid))  # riferimento forte vivo
+        assert held[0] is not None
+        with Session() as other:  # un'ALTRA Session cancella la conversazione
+            other.execute(delete(ChatMessage).where(ChatMessage.session_id == sid))
+            other.execute(delete(ChatSession).where(ChatSession.id == sid))
+            other.commit()
+        return AIAnswer(text="risposta tardiva", tool_calls=[], truncated=False)
+
+    fake.answer = answer
+    resp = client.post("/ai/query", json={"question": "due", "session_id": sid})
+
+    assert resp.status_code == 200
+    new_sid = resp.json()["session_id"]
+    assert new_sid is not None
+    with Session() as s:
+        assert s.get(ChatSession, new_sid) is not None
+        msgs = s.scalars(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == new_sid)
+            .order_by(ChatMessage.created_at, ChatMessage.id)
+        ).all()
+        assert [(m.role, m.content) for m in msgs] == [("user", "due"), ("assistant", "risposta tardiva")]
+        assert s.get(ChatSession, new_sid).title == "due"
+
+
+def test_502_detail_is_redacted(env, monkeypatch):
+    """M7: il detail del 502 non lascia filtrare il valore di AI_API_KEY."""
+    from app.config import settings
+
+    sentinel = "SENTINELLA-KEY-9f3a2c"
+    monkeypatch.setattr(settings, "ai_api_key", sentinel)
+    client, fake, _ = env
+    fake.error = AIProviderError(f"401 Unauthorized, key={sentinel} rejected")
+    resp = client.post("/ai/query", json={"question": "q"})
+    assert resp.status_code == 502
+    assert sentinel not in resp.text
+    assert "<ai_api_key>" in resp.json()["detail"]
 
 
 def test_tools_json_and_truncated_persisted(env):

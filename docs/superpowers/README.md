@@ -19,7 +19,7 @@ Subagent-Driven Development (SDD).
 | Roadmap F8-F14 | [2026-07-21-f8-f14-roadmap-design.md](specs/2026-07-21-f8-f14-roadmap-design.md) | — | ☑ |
 | Blocco A — F8-F9 | [2026-07-21-f8-f9-detail-spec.md](specs/2026-07-21-f8-f9-detail-spec.md) | [f8-f9-implementation-plan.md](plans/f8-f9-implementation-plan.md) | ☑ |
 | Blocco B — F11-F13 | [2026-07-25-f11-f12-f13-detail-spec.md](specs/2026-07-25-f11-f12-f13-detail-spec.md) | [f11-f12-f13-implementation-plan.md](plans/f11-f12-f13-implementation-plan.md) | ☑ |
-| Blocco C — F10+F14 | [2026-10-14-f10-f14-detail-spec.md](specs/2026-10-14-f10-f14-detail-spec.md) | [f10-f14-implementation-plan.md](plans/f10-f14-implementation-plan.md) | ◐ mergiato, T10 da fare |
+| Blocco C — F10+F14 | [2026-10-14-f10-f14-detail-spec.md](specs/2026-10-14-f10-f14-detail-spec.md) | [f10-f14-implementation-plan.md](plans/f10-f14-implementation-plan.md) | ☑ chiuso su `blocco-c-t10`, merge in attesa di ok |
 
 ## Nota
 

@@ -285,6 +285,30 @@ saranno comunque disponibili in `/backups`.
 In altre parole: la configurazione di Google Drive è **opzionale** — il backup funziona in locale
 anche senza di essa; Drive aggiunge solo una copia di sicurezza fuori sede.
 
+### Test di connessione a Google Drive
+
+Nella pagina **Backup** (`/backup-restore`), sezione "Google Drive", il pulsante **Test connessione
+Drive** verifica che il backup su Drive possa funzionare davvero. **Scrive**: crea nella cartella
+configurata un file di prova di pochi byte (`portfolio_gdrive_probe_<timestamp>.probe`), lo rilegge
+e lo cancella; può richiedere fino a due minuti. Parte solo quando premi il pulsante, mai da solo.
+
+Il risultato è un badge **Connessione OK** / **Connessione fallita**, un messaggio che nomina la
+causa e, sotto, i dettagli tecnici (`outcome`, fase, stato e motivo restituiti da Google). L'ID della
+cartella non viene mai mostrato. Se compare un avviso sul file di prova rimasto, non serve fare
+nulla: viene rimosso al test successivo. Se il test è già in corso, un secondo click risponde
+"Test già in corso".
+
+Cosa fare per ogni esito (tabella completa in [SECURITY.md](SECURITY.md)): `sa_missing` →
+controlla che il file della Service Account sia montato; `folder_not_found`/`permission_denied` →
+condividi la cartella come Editor; `api_disabled` → abilita la Google Drive API nel progetto Google
+Cloud; `quota_exceeded` → una Service Account non può scrivere in un Drive personale, serve uno
+Shared Drive o l'accesso OAuth (decisione rimandata a un ADR dedicato).
+
+In cima alla pagina il riquadro **Ultimo backup** mostra data, origine (manuale o all'avvio), esito
+locale e, se presente, l'upload su Drive, con l'avviso del motivo se Drive è stato saltato o è
+fallito. Riguarda solo la sessione corrente del backend: dopo un riavvio dice "Nessun backup in
+questa sessione".
+
 ### Retention (rotazione automatica)
 
 Ad ogni backup (manuale o all'avvio), viene applicata una rotazione automatica sia in locale sia
@@ -348,8 +372,8 @@ sempre aggiornati all'ultima transazione importata.
 | Import | `/import` | Caricamento file mensile "My Finance" e import storico (dry-run + commit). |
 | Categorie pending | `/categorie-pending` | Assegnazione manuale delle categorie non riconosciute automaticamente durante l'import. |
 | Conti | `/conti` | Elenco conti con possibilità di rinominare il nome visualizzato. |
-| Backup | `/backup` | Backup manuale immediato, elenco backup disponibili, restore. |
-| Assistente AI | `/assistente-ai` | Domande in linguaggio naturale sui propri dati finanziari (solo lettura, nessuna memoria tra domande). |
+| Backup | `/backup-restore` | Esito dell'ultimo backup, backup manuale immediato, test di connessione a Google Drive, elenco backup disponibili, restore. |
+| Assistente AI | `/assistente-ai` | Domande in linguaggio naturale sui propri dati finanziari (solo lettura), con conversazioni salvate in locale e riprendibili. |
 
 ### Filtrare le transazioni
 
@@ -431,8 +455,31 @@ esattamente come sempre.
 ### Come si usa
 
 Dal menu apri la pagina **Assistente AI** (`/assistente-ai`). Scrivi la domanda nel campo di testo
-e premi "Chiedi". Ogni domanda è indipendente: l'assistente non ricorda le domande precedenti,
-quindi se serve contesto va ripetuto nella domanda stessa.
+e premi "Chiedi". Dentro una conversazione puoi fare domande di seguito ("e il mese prima?"): le
+ultime coppie domanda/risposta vengono rinviate al provider insieme alla nuova domanda, così il
+contesto non va ripetuto. Per cambiare argomento premi "Nuova conversazione".
+
+### Conversazioni e storico
+
+Ogni conversazione viene salvata **sul tuo disco** (`data/portfolio.db`) e compare nella colonna a
+sinistra, con titolo e data dell'ultimo messaggio:
+
+- **Riprendere** una conversazione: cliccala nell'elenco. L'indirizzo della pagina diventa
+  `/assistente-ai?sessione=<id>`, quindi puoi anche salvarlo tra i preferiti. La conversazione
+  sopravvive al riavvio del container.
+- **Eliminare** una conversazione: la ✕ accanto al titolo, senza conferma.
+- **Azzerare tutto**: "Azzera storico" cancella tutte le conversazioni e i messaggi, dopo una
+  conferma a due passaggi. Non si può annullare. **Attenzione**: l'azzeramento agisce solo sul
+  database in uso; i backup già creati e la replica di Metabase possono conservare ancora le chat
+  (dettagli in [SECURITY.md](SECURITY.md)).
+- Se una conversazione non esiste più (per esempio dopo un restore da un backup precedente) compare
+  un avviso e parte una conversazione nuova.
+- Se la risposta riporta "potrebbe essere parziale", i dati letti sono stati troncati: controlla la
+  traccia dei tool prima di fidarti del numero.
+
+**Quanta memoria ha.** Il numero di coppie rinviate a ogni domanda si regola da **Impostazioni**
+(`/impostazioni`, voce «Turni massimi di cronologia», default 6; `0` = nessuna memoria, ogni domanda
+indipendente). Più è alto, più dati escono verso il provider a ogni domanda.
 
 Per un uso diretto via riga di comando (o da script), lo stesso endpoint è raggiungibile con:
 

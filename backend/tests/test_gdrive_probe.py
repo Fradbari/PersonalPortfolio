@@ -305,3 +305,49 @@ def test_api_disabled_in_post_backup_drive_error():
     exc = http_error(403, "accessNotConfigured")
     assert classify_drive_error(exc, "write")[0] == "api_disabled"
     assert drive.outcome_message("api_disabled") == drive._MESSAGES["api_disabled"]
+
+
+def _real_transport_error():
+    """TransportError REALE: prodotto da google_auth_httplib2.Request (il trasporto del refresh
+    del token) quando httplib2 solleva ServerNotFoundError, non iniettato a mano."""
+    import google_auth_httplib2
+    from google.auth.exceptions import TransportError
+
+    class _DnsDown:
+        def request(self, *_a, **_k):
+            raise httplib2.ServerNotFoundError(f"Unable to find the server at {FOLDER}")
+
+    with pytest.raises(TransportError) as info:
+        google_auth_httplib2.Request(_DnsDown())("https://oauth2.googleapis.com/token")
+    return info.value
+
+
+def test_real_transport_error_hierarchy_is_not_refresh_error():
+    exc = _real_transport_error()
+    assert not isinstance(exc, RefreshError)
+    assert classify_drive_error(exc, "cleanup") == ("network_error", None, None)
+
+
+def test_real_transport_error_in_probe_is_network_error_not_unexpected(monkeypatch, sa_path, caplog):
+    # Primo contatto di rete = refresh del token (credenziali ricostruite a ogni probe), in "cleanup".
+    fake = FakeDrive(fail={"list": _real_transport_error()})
+    with caplog.at_level("DEBUG"):
+        res = probe(monkeypatch, sa_path, fake)
+    assert (res.outcome, res.stage, res.ok) == ("network_error", "cleanup", False)
+    assert_clean(res, sa_path)
+    assert FOLDER not in caplog.text
+
+
+def test_refresh_error_retryable_is_network_error():
+    exc = RefreshError("token endpoint 503", retryable=True)
+    assert classify_drive_error(exc, "cleanup") == ("network_error", None, None)
+
+
+def test_refresh_error_not_retryable_is_sa_auth_failed():
+    assert classify_drive_error(RefreshError("invalid_grant"), "cleanup") == ("sa_auth_failed", None, None)
+    assert classify_drive_error(RefreshError("x", retryable=False), "cleanup") == ("sa_auth_failed", None, None)
+
+
+def test_refresh_error_retryable_in_probe(monkeypatch, sa_path):
+    res = probe(monkeypatch, sa_path, FakeDrive(fail={"list": RefreshError("503", retryable=True)}))
+    assert (res.outcome, res.stage) == ("network_error", "cleanup")

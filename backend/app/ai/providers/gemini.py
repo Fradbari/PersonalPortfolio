@@ -103,6 +103,21 @@ class GeminiProvider(AIProvider):
         return genai.Client(api_key=settings.ai_api_key)
 
     @staticmethod
+    def _drop_empty_assistant_turns(history: list[ChatTurn]) -> list[ChatTurn]:
+        """Scarta i turni assistant con testo vuoto/solo spazi (cap iterazioni senza
+        testo, blocco safety) insieme allo user_input del turno corrispondente, cosi'
+        l'alternanza user/model non si spezza e l'Interactions API non riceve mai un
+        `model_output` vuoto. Va applicato PRIMA del troncamento al cap dei turni."""
+        kept: list[ChatTurn] = []
+        for turn in history:
+            if turn.role != "user" and not (turn.content or "").strip():
+                if kept and kept[-1].role == "user":
+                    kept.pop()
+                continue
+            kept.append(turn)
+        return kept
+
+    @staticmethod
     def _history_steps(history: list[ChatTurn]) -> list[dict]:
         return [
             {
@@ -118,6 +133,8 @@ class GeminiProvider(AIProvider):
 
         tool_calls: list[ToolCall] = []
         current_input: Any = question
+        if history:
+            history = self._drop_empty_assistant_turns(history)
         if history:
             max_turns = get_effective("ai_history_max_turns", session)[0]
             if max_turns <= 0:

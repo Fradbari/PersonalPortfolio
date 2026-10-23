@@ -460,3 +460,25 @@ def test_folder_id_absent_from_both_endpoints_same_404(tmp_path, monkeypatch, ca
         assert resp.status_code == 200
         _assert_no_sentinel(resp.text, sa)
     _assert_no_sentinel(caplog.text, sa)
+
+
+import pytest  # noqa: E402
+
+
+def test_gdrive_test_releases_lock_when_probe_raises(tmp_path, monkeypatch):
+    """Il `finally` rilascia _probe_lock anche se il probe esplode: nessun 409 residuo (M8b)."""
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    _sentinels(tmp_path, monkeypatch)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("probe esploso")
+
+    monkeypatch.setattr(backup_router, "run_gdrive_probe", boom)
+    with pytest.raises(RuntimeError):
+        client.post("/backup/gdrive-test")
+    assert not backup_router._probe_lock.locked()
+
+    monkeypatch.setattr(drive_module, "get_drive_service", lambda _p: FakeDrive())
+    monkeypatch.setattr(backup_router, "run_gdrive_probe", drive_module.run_gdrive_probe)
+    resp = client.post("/backup/gdrive-test")
+    assert resp.status_code == 200 and resp.json()["ok"] is True

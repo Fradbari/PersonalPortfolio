@@ -207,3 +207,75 @@ def test_post_local_failure_still_recorded(tmp_path, monkeypatch, target):
     assert last["local_ok"] is True
     assert last["message"] == backup_router._POST_LOCAL_FAILURE_MESSAGE
     assert SENTINEL not in str(last)
+
+
+def test_last_at_is_utc_with_explicit_offset(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    client.post("/backup")
+    at = client.get("/backup/last").json()["last"]["at"]
+    assert at.endswith("+00:00")
+    parsed = datetime.fromisoformat(at)
+    assert parsed.utcoffset() == timedelta(0)
+
+
+def test_retention_failure_after_upload_message_does_not_contradict_uploaded(tmp_path, monkeypatch, caplog):
+    # (A) upload riuscito, poi errore nella rotazione Drive.
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    sa = _with_sa(tmp_path, monkeypatch, SENTINEL)
+    uploads = []
+    monkeypatch.setattr(backup_router, "get_drive_service", lambda _p: FakeDrive())
+    monkeypatch.setattr(backup_router, "upload_file", lambda *a, **k: uploads.append(a[1]))
+
+    def boom(*_a, **_k):
+        raise http_error(403, "insufficientFilePermissions", folder=SENTINEL)
+
+    monkeypatch.setattr(backup_router, "apply_drive_retention", boom)
+    caplog.set_level(logging.DEBUG)
+
+    resp = client.post("/backup")
+    body = resp.json()
+
+    assert len(uploads) == 2
+    assert body["drive_uploaded"] is True
+    assert body["drive_error"] == backup_router._RETENTION_FAILURE_PREFIX + outcome_message("permission_denied")
+    assert "caricato" in body["drive_error"] and "rotazione" in body["drive_error"]
+    last = client.get("/backup/last").json()["last"]
+    assert last["drive_uploaded"] is True
+    assert last["drive_outcome"] == "permission_denied"
+    assert last["message"] == body["drive_error"]
+    for text in (resp.text, str(last), caplog.text):
+        assert SENTINEL not in text and sa not in text and SENTINEL_PATH not in text
+    assert "stage=cleanup" in caplog.text
+
+
+def test_retention_404_is_folder_not_found(tmp_path, monkeypatch):
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    _with_sa(tmp_path, monkeypatch, SENTINEL)
+    monkeypatch.setattr(backup_router, "get_drive_service", lambda _p: FakeDrive(fail={"list": http_error(404, "notFound")}))
+    monkeypatch.setattr(backup_router, "upload_file", lambda *a, **k: "id")
+    client.post("/backup")
+    assert client.get("/backup/last").json()["last"]["drive_outcome"] == "folder_not_found"
+
+
+def test_malformed_sa_key_is_sa_invalid_like_probe(tmp_path, monkeypatch, caplog):
+    # (B) chiave SA presente ma non valida: parsing reale in get_drive_service.
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    sa = _with_sa(tmp_path, monkeypatch, SENTINEL)
+    with open(sa, "w") as fh:
+        fh.write("non json {")
+    caplog.set_level(logging.DEBUG)
+
+    resp = client.post("/backup")
+    body = resp.json()
+
+    assert resp.status_code == 200
+    assert body["drive_uploaded"] is False
+    assert body["drive_error"] == outcome_message("sa_invalid")
+    last = client.get("/backup/last").json()["last"]
+    assert last["drive_outcome"] == "sa_invalid"
+    assert last["message"] == outcome_message("sa_invalid")
+    assert set(last) == KEYS
+    for text in (resp.text, str(last), caplog.text):
+        assert SENTINEL not in text and sa not in text and SENTINEL_PATH not in text
