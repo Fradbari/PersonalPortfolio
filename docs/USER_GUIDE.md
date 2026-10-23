@@ -243,7 +243,7 @@ stesso timestamp:
 Entrambi i file vengono salvati:
 
 1. **In locale**, nella cartella `/backups` del container (montata sull'host).
-2. **Su Google Drive**, se la Service Account è configurata (vedi sotto), nella cartella
+2. **Su Google Drive**, se il token OAuth è configurato (vedi sotto), nella cartella
    indicata da `GDRIVE_BACKUP_FOLDER_ID`.
 
 Per vedere l'elenco dei backup locali disponibili:
@@ -273,10 +273,11 @@ Default: `false` (disattivato). Quando attivo, il backup all'avvio gira in backg
 best-effort: se fallisce (es. Drive irraggiungibile), l'errore viene solo loggato e **non** impedisce
 l'avvio dell'applicazione.
 
-### Se la Service Account Google Drive non è configurata
+### Se l'accesso a Google Drive non è configurato
 
-L'upload su Drive richiede che il file della Service Account sia montato a runtime in
-`/secrets/service_account.json` (mai committato nel repository, vedi [SECURITY.md](SECURITY.md)). Se questo
+L'upload su Drive richiede che il file di token OAuth (generato con `scripts/gdrive_oauth_setup.py`,
+procedura in [SECURITY.md](SECURITY.md)) sia montato a runtime sotto `/secrets` e che
+`GOOGLE_OAUTH_TOKEN_PATH` ne indichi il percorso (mai committato nel repository). Se questo
 file manca (o è illeggibile/corrotto), l'upload su Drive viene semplicemente saltato — **il backup
 locale viene comunque creato normalmente**. Non è un errore bloccante: la risposta dell'endpoint
 segnalerà `"drive_uploaded": false` con una nota nel campo `drive_error`, ma i file `.db`/`.xlsx`
@@ -298,11 +299,12 @@ cartella non viene mai mostrato. Se compare un avviso sul file di prova rimasto,
 nulla: viene rimosso al test successivo. Se il test è già in corso, un secondo click risponde
 "Test già in corso".
 
-Cosa fare per ogni esito (tabella completa in [SECURITY.md](SECURITY.md)): `sa_missing` →
-controlla che il file della Service Account sia montato; `folder_not_found`/`permission_denied` →
-condividi la cartella come Editor; `api_disabled` → abilita la Google Drive API nel progetto Google
-Cloud; `quota_exceeded` → una Service Account non può scrivere in un Drive personale, serve uno
-Shared Drive o l'accesso OAuth (decisione rimandata a un ADR dedicato).
+Cosa fare per ogni esito (tabella completa in [SECURITY.md](SECURITY.md)): `auth_missing` →
+controlla che il file di token sia montato e `GOOGLE_OAUTH_TOKEN_PATH` impostato;
+`auth_invalid`/`auth_expired` → rigenera il token con lo script di setup; `folder_not_found` →
+l'id è errato o la cartella non è stata creata dall'app (usa quella creata dallo script);
+`permission_denied` → verifica i permessi dell'account sulla cartella; `api_disabled` → abilita la
+Google Drive API nel progetto Google Cloud; `quota_exceeded` → Drive pieno o limite di richieste.
 
 In cima alla pagina il riquadro **Ultimo backup** mostra data, origine (manuale o all'avvio), esito
 locale e, se presente, l'upload su Drive, con l'avviso del motivo se Drive è stato saltato o è

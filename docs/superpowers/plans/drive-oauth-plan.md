@@ -188,6 +188,17 @@ scrive, dove). Nessun Drive reale.
 8. Annotare se la schermata di consenso ha mostrato l'avviso "app non verificata".
 9. Solo dopo il GO: l'utente revoca la chiave della SA e toglie la condivisione della cartella.
 
+#### Esiti CP2 (registrati 2026-10-23)
+
+Backup preventivo del DB reale eseguito prima del rebuild (`data/archive/portfolio-pre-oauth-20261023.db`,
+integrity_check `ok`, 514 transazioni · 3 conti · 20 categorie, revisione `0006`). Esiti riportati
+dall'utente: passi 3-4 (probe `ok`) · 5 (`drive_uploaded: true`, coppia nella cartella) · 6 (rotazione su
+Drive corretta, `backup_retention` ripristinato) · 7 (probe `ok` dopo lo spostamento della cartella) ·
+passo 8 (avviso "app non verificata"): **non registrato**. Passo 9 (revoca chiave SA, rimozione
+condivisione) non ancora fatto: dopo il task "rimozione completa SA". Durante il CP2 è emerso che il
+`.env` non era stato aggiornato al primo tentativo (`GOOGLE_OAUTH_TOKEN_PATH` assente nel container):
+diagnosticato con controlli booleani nel container, senza leggere `.env`.
+
 ### T8 — review finale e merge · **main**
 
 Review whole-branch (subagent Opus 5.5) su codice + documenti, fix dei Critical/Important, merge

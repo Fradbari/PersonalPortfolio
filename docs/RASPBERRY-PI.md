@@ -61,7 +61,7 @@ cp .env.example .env
 ```
 
 Il file `.env` copiato al passo 5 funziona già con i default (one-click). Le chiavi opzionali
-(`AI_API_KEY`/`AI_PROVIDER` per Fase 6, `GOOGLE_SA_KEY_PATH`/`GDRIVE_BACKUP_FOLDER_ID` per
+(`AI_API_KEY`/`AI_PROVIDER` per Fase 6, `GOOGLE_OAUTH_TOKEN_PATH`/`GDRIVE_BACKUP_FOLDER_ID` per
 Fase 4) vanno valorizzate solo se si vogliono quelle funzionalità attive, e **non vanno mai
 committate** — restano locali al Pi, coperte da `.gitignore` (dettagli:
 [docs/SECURITY.md](SECURITY.md)).

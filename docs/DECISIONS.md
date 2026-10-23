@@ -76,6 +76,7 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   (`BACKUP_ON_STARTUP`). Autenticazione Drive via **Service Account** (JSON montata a runtime).
   Backup = dump SQLite + export "in chiaro" .xlsx → locale + Drive.
 - Conseguenze: nessun login browser; nessun cron nascosto non voluto.
+- Nota 2026-10-23: l'autenticazione Drive via Service Account è **superata da ADR-0035** (OAuth utente).
 
 ## ADR-0009 — Esposizione solo rete locale (per ora)
 - Status: Accepted — Fase: F0 — Data: 2026-07-12
@@ -97,6 +98,7 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   Criterio sul contenuto, non su dimensione byte (non blocca `package.json`/`tsconfig.json` legittimi).
   Hook versionato in `.githooks/`, attivato con `git config core.hooksPath .githooks`.
 - Conseguenze: barriera automatica contro leak; segue `docs/SECURITY.md`.
+- Nota 2026-10-23: marcatori estesi con `"refresh_token"` e `"client_secret"` quotati da **ADR-0035**.
 
 ## ADR-0012 — Import storico solo dal 2026, conti storici → principale
 - Status: Accepted — Fase: F0 (uso F2) — Data: 2026-07-12
@@ -785,6 +787,8 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
      secret nella risposta (sentinelle iniettate in config); (b) nessuna chiave blacklistata
      nell'array `settings[]`; (c) `PUT` su chiave blacklistata e su chiave inesistente → 400 con
      **messaggio identico**, altrimenti la differenza permette di enumerare la blacklist.
+- Nota 2026-10-23: la chiave blacklistata `google_sa_key_path` è **sostituita da
+  `google_oauth_token_path`** (ADR-0035 p.9); il resto della blacklist è invariato.
 
 ## ADR-0028 — Inserimento manuale (F11): `POST /transactions`, `source='manual'`, duplicato consapevole con ordinale `#n` (specializza ADR-0005/ADR-0013)
 
@@ -1450,3 +1454,9 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   - Nota: nessuna pagina Google descrive esplicitamente il caso "upload in una cartella non creata
     dall'app con `drive.file`"; la conclusione discende dalla definizione dello scope ed è
     confermata da segnalazioni pubbliche. Viene verificata dal vivo al CP2.
+- **Esiti della verifica dal vivo (CP2, 2026-10-23, riportati dall'utente)**: probe `ok`;
+  `POST /backup` con `drive_uploaded: true` e coppia `.db`/`.xlsx` presente nella cartella;
+  rotazione su Drive con `backup_retention` = 1 corretta (poi ripristinato); dopo lo spostamento della
+  cartella dentro un'altra il probe resta `ok` (conferma il p.3: `drive.file` è legato al file, non
+  alla posizione). Avviso "app non verificata" alla schermata di consenso: **esito non ancora
+  registrato** (atteso assente con soli scope non-sensitive, p.4).

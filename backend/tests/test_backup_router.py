@@ -124,7 +124,7 @@ def test_restore_rejects_path_traversal_filename(tmp_path, monkeypatch):
     # finisce con ".db") ma contiene componenti ".." che, sotto il vecchio codice
     # (os.path.join senza basename/contenimento), farebbero uscire il path risolto
     # da settings.backup_dir (path traversal, trovato in review Task 4).
-    traversal_filename = "portfolio_backup_../../../../secrets/service_account.json.db"
+    traversal_filename = "portfolio_backup_../../../../secrets/token_file.json.db"
 
     resp = client.post("/backup/restore", json={"filename": traversal_filename, "confirm": True})
 
