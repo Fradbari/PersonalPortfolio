@@ -1386,7 +1386,7 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
      7 giorni e il backup smetterebbe di funzionare in silenzio dopo una settimana. Con soli scope
      non-sensitive non serve la verifica dell'app per pubblicare; nessun logo caricato (il logo
      richiede la verifica del brand). L'avviso "app non verificata" è previsto solo per scope
-     sensitive/restricted: con `drive.file` non è atteso, da confermare al CP2.
+     sensitive/restricted: con `drive.file` non è atteso (esito al CP2 non registrato).
   5. **Una sola credenziale: la Service Account è dismessa.** Rimossi `service_account` da
      `drive.py`, `GOOGLE_SA_KEY_PATH` da `config.py`, `.env.example`, UI e documenti operativi.
      Nuova variabile `GOOGLE_OAUTH_TOKEN_PATH`, **default vuoto**: nessun path della cartella dei
