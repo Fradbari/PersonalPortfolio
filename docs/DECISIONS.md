@@ -1315,3 +1315,127 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   deterministicamente (stessa classe di limite di ADR-0028 p.5 sulla concorrenza) — il lock è
   corretto per costruzione, la suite verifica il path sequenziale e il failure path di ciascun
   blocco singolarmente.
+
+## ADR-0035 — Backup Drive con OAuth utente: refresh token, scope `drive.file`, cartella creata dall'app, Service Account dismessa (specializza ADR-0018 p.3; rettifica ADR-0008, ADR-0011, ADR-0027 p.6, ADR-0031)
+
+- Status: Proposed — Fase: rimedio post-Blocco C (nessuna fase di roadmap) — Data: 2026-10-23
+- Piano: `docs/superpowers/plans/drive-oauth-plan.md`
+- Contesto: il probe di F10 dal container (`/backup-restore` → "Test connessione") restituisce
+  `quota_exceeded`, stage `write`, HTTP 403 `storageQuotaExceeded`. La cartella è condivisa con la
+  Service Account come Editor e l'API è abilitata: la causa è strutturale. Una Service Account **non
+  ha quota di storage propria** e in un My Drive personale non può essere proprietaria dei file che
+  crea, quindi ogni upload viene rifiutato. Il backup locale e il restore funzionano: il restore
+  legge **solo** da `/backups` locale (ADR-0018 p.5) e non usa alcuna credenziale Drive. L'account
+  dell'utente è un `@gmail` personale, senza Google Workspace. Il problema era già previsto in
+  `docs/SECURITY.md` («ADR separato, dopo il Blocco C»).
+- Opzioni scartate:
+  - **A — Shared Drive.** Una SA può scrivere in uno Shared Drive, perché lì i file appartengono al
+    drive condiviso e non a chi li crea. Ma gli Shared Drive esistono solo in Google Workspace: non
+    disponibili su un account `@gmail`.
+  - **C — Domain-wide delegation.** La SA impersona un utente del dominio e scrive con la sua
+    quota. Richiede un amministratore Workspace che autorizzi la delega sul dominio: su `@gmail` non
+    c'è dominio né console di amministrazione.
+  - **B2 — OAuth utente con scope `drive` completo.** Permetterebbe di usare la cartella creata a
+    mano così com'è. Ma `drive` è uno scope **restricted** («View and manage all your Drive files»,
+    soggetto a «restricted scope OAuth App Verification»): un refresh token sottratto aprirebbe in
+    lettura, scrittura e cancellazione **tutto** il Drive dell'utente. Il guadagno (riusare una
+    cartella già esistente) non giustifica quel raggio d'azione.
+  - **Google Picker per concedere la cartella esistente a `drive.file`.** Richiede una UI di
+    selezione nel browser e una chiave API lato client: contrasta con CLAUDE.md regola 7 (nessuna
+    `GOOGLE_API_KEY`, nessun identificatore privato sulla superficie HTTP) e aggiunge un flusso
+    interattivo per un'operazione una tantum.
+  - **`drive.appdata`.** Cartella nascosta all'utente: il backup off-site non sarebbe più
+    ispezionabile né scaricabile a mano da Drive, che è proprio il suo scopo di ridondanza.
+  - **SA come fallback accanto a OAuth.** Su My Drive continuerebbe a fallire per quota: due
+    percorsi di credenziali da testare e documentare per un ramo che non può funzionare.
+- Decisione:
+  1. **OAuth utente con refresh token, client di tipo "Desktop app".** Il backend carica un file
+     JSON di tipo *authorized user* (id client, secret client, refresh token) con
+     `google.oauth2.credentials.Credentials.from_authorized_user_file(path, DRIVE_SCOPES)`. Il file
+     è generato una tantum **dall'utente** sul proprio host con uno script del repository
+     (`scripts/gdrive_oauth_setup.py`: flusso loopback `127.0.0.1`, PKCE, `prompt=consent` per
+     ottenere sempre un refresh token) e montato nel container in sola lettura, come la chiave SA
+     oggi. Il backend **non riscrive mai** il file: l'access token vive solo in memoria e si
+     rinnova a ogni costruzione del client.
+  2. **Scope solo `drive.file`**, invariato rispetto a oggi. È non-sensitive e dà accesso per-file:
+     l'app vede e modifica solo i file che ha creato (o che l'utente le ha aperto con un picker).
+     Ne segue che **la cartella creata a mano dall'utente non è utilizzabile**: per l'app non
+     esiste, e un upload con quella cartella come `parents` risponde 404.
+  3. **La cartella di destinazione la crea l'app.** Lo script di setup, con le credenziali appena
+     ottenute, crea una cartella nel My Drive e ne stampa l'id **solo nel terminale dell'utente**.
+     L'utente la sposta dove preferisce (tipicamente dentro la cartella creata a mano, che diventa
+     un semplice contenitore) e configura l'id in `GDRIVE_BACKUP_FOLDER_ID`. L'accesso `drive.file`
+     è legato al file, non alla sua posizione: lo spostamento non lo revoca (verificato dal vivo al
+     CP2 con un probe dopo lo spostamento). L'id resta blacklistato e non compare in documenti, log
+     o risposte.
+  4. **Publishing status "In production" obbligatorio.** In "Testing" il refresh token scade dopo
+     7 giorni e il backup smetterebbe di funzionare in silenzio dopo una settimana. Con soli scope
+     non-sensitive non serve la verifica dell'app per pubblicare; nessun logo caricato (il logo
+     richiede la verifica del brand). L'avviso "app non verificata" è previsto solo per scope
+     sensitive/restricted: con `drive.file` non è atteso, da confermare al CP2.
+  5. **Una sola credenziale: la Service Account è dismessa.** Rimossi `service_account` da
+     `drive.py`, `GOOGLE_SA_KEY_PATH` da `config.py`, `.env.example`, UI e documenti operativi.
+     Nuova variabile `GOOGLE_OAUTH_TOKEN_PATH`, **default vuoto**: nessun path della cartella dei
+     secret scritto nel codice, lo imposta l'utente in `.env`.
+  6. **Restore invariato** (ADR-0018 p.5, ADR-0034): legge solo dal locale, nessuna credenziale.
+     Il restore diretto da Drive resta fuori scope; il percorso manuale è documentato: scaricare la
+     coppia `.db`/`.xlsx` da Drive nella cartella dei backup e ripristinarla dalla UI.
+  7. **Backup esistenti.** Locali: intatti, nessuna azione. Su Drive: nessun backup creato dalla SA
+     (tutte le scritture sono state rifiutate con 403), quindi niente da migrare. Eventuali file
+     caricati a mano nella cartella restano invisibili all'app e la retention non li tocca. Dopo il
+     primo probe `ok` con OAuth l'utente **revoca la chiave SA** nella console Google e toglie la
+     condivisione della cartella alla SA.
+  8. **Esiti diagnostici** (rettifica ADR-0031): stessa forma di `ProbeResult`, 12 esiti, i tre
+     legati alla SA rinominati e ridefiniti:
+
+     | Esito | Prima | Quando |
+     |---|---|---|
+     | `auth_missing` | `sa_missing` | `GOOGLE_OAUTH_TOKEN_PATH` vuoto o file assente |
+     | `auth_invalid` | `sa_invalid` | JSON non parsabile o incompleto; `RefreshError` non ritentabile con `error` diverso da `invalid_grant` (es. `invalid_client`, client eliminato); 403 per scope insufficiente |
+     | `auth_expired` | `sa_auth_failed` | `RefreshError` con `error = invalid_grant` (token revocato, sei mesi di inutilizzo, app rimasta in Testing) o HTTP 401. Rimedio: rigenerare il token con lo script |
+     | `folder_not_found` | invariato, messaggio nuovo | 404 in `cleanup`/`write`: id errato **o cartella non creata dall'app** |
+     | `quota_exceeded` | invariato, messaggio nuovo | ora significa Drive dell'utente pieno, o rate limit |
+
+     `ok`, `folder_id_missing`, `permission_denied`, `api_disabled`, `timeout`, `network_error`,
+     `unexpected` invariati. La classificazione resta sui campi strutturati (`resp.status`,
+     `error_details[0].reason`, campo `error` della risposta del token endpoint), mai su `str(exc)`.
+  9. **Blacklist** (rettifica ADR-0027 p.6 e CLAUDE.md regola 7): `google_sa_key_path` →
+     `google_oauth_token_path`. `secrets_status` riporta `configured` sull'esistenza del file, mai
+     il path; `redact()` sostituisce il nuovo valore come il vecchio.
+  10. **Hook pre-commit** (rettifica ADR-0011): marcatori aggiunti `"refresh_token"` e
+      `"client_secret"`, **con le virgolette** (forma di chiave JSON), così bloccano il file di
+      token e il JSON del client scaricato dalla console ma non l'accesso ad attributo nel codice
+      Python. Test e script non contengono quei letterali quotati.
+  11. **Dipendenze e schema.** Nessuna nuova dipendenza nell'immagine (`google-auth` c'è già);
+      `google-auth-oauthlib` solo in `scripts/requirements-oauth.txt`, installato dall'utente sul
+      proprio host. Nessuna revision Alembic: `alembic heads` resta `0006`. Gate arm64 non
+      necessario (immagine con le stesse dipendenze). `phase`/`version` invariati.
+- Conseguenze: il backup off-site funziona su un account `@gmail` personale. Il raggio d'azione di
+  una credenziale sottratta si **restringe** rispetto a una chiave SA condivisa su una cartella: il
+  refresh token apre solo i file creati dall'app. Rischi residui dichiarati: (a) il refresh token
+  può smettere di funzionare per revoca, sei mesi di inutilizzo o superamento del limite di 100
+  token per client e account — l'esito è `auth_expired` con rimedio esplicito, il backup locale
+  continua; (b) il secret di un client "Desktop app" non è confidenziale per definizione di Google:
+  la protezione reale è la segretezza del file di token, coperto da `.gitignore` e dal
+  nuovo marcatore dell'hook; (c) l'utente esegue una procedura una tantum (client OAuth,
+  pubblicazione, script) documentata in `docs/SECURITY.md`. Contratto UI: cambia solo la stringa
+  `outcome` dei tre esiti rinominati, che `/backup-restore` mostra senza logica per-esito.
+- Fonti (consultate il 2026-10-23):
+  - Scope Drive: `drive.file` è non-sensitive, «Create new Drive files, or modify existing files,
+    that you open with an app»; `drive` è restricted —
+    https://developers.google.com/workspace/drive/api/guides/api-specific-auth
+  - Scelta dello scope e verifica: gli scope restricted «require restricted scope OAuth App
+    Verification» — https://developers.google.com/workspace/drive/api/guides/about-auth
+  - Refresh token: in Testing «issued a refresh token expiring in 7 days»; decade se «has not been
+    used for six months», se revocato, oltre il limite di «100 refresh tokens per Google Account per
+    OAuth 2.0 client ID» — https://developers.google.com/identity/protocols/oauth2
+  - Publishing status e avviso app non verificata (solo scope sensitive/restricted) —
+    https://support.google.com/cloud/answer/15549945 · https://support.google.com/cloud/answer/7454865
+  - Client desktop: redirect loopback, OOB non più supportato, «Desktop apps are public clients and
+    cannot keep secrets confidential», `prompt=consent` per un nuovo refresh token —
+    https://developers.google.com/identity/protocols/oauth2/native-app
+  - 404 `notFound` = nessun accesso in lettura al file —
+    https://developers.google.com/workspace/drive/api/guides/handle-errors
+  - Nota: nessuna pagina Google descrive esplicitamente il caso "upload in una cartella non creata
+    dall'app con `drive.file`"; la conclusione discende dalla definizione dello scope ed è
+    confermata da segnalazioni pubbliche. Viene verificata dal vivo al CP2.
