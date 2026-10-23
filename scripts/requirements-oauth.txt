@@ -1,0 +1,6 @@
+# Dipendenze dello script host scripts/gdrive_oauth_setup.py (ADR-0035).
+# Solo sul PC dell'utente: NON fanno parte dell'immagine backend.
+# Versioni coerenti con backend/requirements.txt dove la libreria e' condivisa.
+google-auth-oauthlib==1.2.0
+google-api-python-client==2.149.0
+google-auth==2.55.2

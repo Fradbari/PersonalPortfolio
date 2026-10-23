@@ -38,17 +38,17 @@ _INVALID_KEY_MESSAGE = "Una o più chiavi non sono impostazioni valide."
 def _is_secret_configured(name: str) -> bool:
     """`configured` per una chiave blacklistata.
 
-    `google_sa_key_path` e' un path su filesystem con un default non vuoto
-    (`app.config.Settings.google_sa_key_path`), quindi `bool(valore)` sarebbe
-    sempre `True` anche quando il file non esiste — il badge deve riflettere
-    l'esistenza reale del file (`os.path.exists`), mai il contenuto (non lo
-    leggiamo mai) ne' il path stesso (resta blacklistato, mai in risposta).
-    Le altre chiavi (`ai_api_key`, `gdrive_backup_folder_id`) sono stringhe
-    libere senza default non-vuoto: `bool(...)` resta corretto.
+    `google_oauth_token_path` e' un path su filesystem (default vuoto,
+    `app.config.Settings.google_oauth_token_path`, ADR-0035): una stringa
+    valorizzata non prova che il token esista, quindi il badge deve riflettere
+    l'esistenza reale del file (`os.path.isfile`; path vuoto o directory -> `False`), mai il
+    contenuto (non lo leggiamo mai) ne' il path stesso (resta blacklistato, mai
+    in risposta). Le altre chiavi (`ai_api_key`, `gdrive_backup_folder_id`) sono
+    stringhe libere senza default non-vuoto: `bool(...)` resta corretto.
     """
     value = getattr(app_settings, name, None)
-    if name == "google_sa_key_path":
-        return bool(value) and os.path.exists(value)
+    if name == "google_oauth_token_path":
+        return bool(value) and os.path.isfile(value)
     return bool(value)
 
 

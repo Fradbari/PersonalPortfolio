@@ -2,12 +2,16 @@ from app.backup import BACKUP_PREFIX
 from app.drive import apply_drive_retention, get_drive_service
 
 
-def test_get_drive_service_returns_none_when_sa_key_missing(tmp_path):
+def test_get_drive_service_returns_none_when_token_missing(tmp_path):
     missing_path = str(tmp_path / "does_not_exist.json")
 
     service = get_drive_service(missing_path)
 
     assert service is None
+
+
+def test_get_drive_service_returns_none_for_directory(tmp_path):
+    assert get_drive_service(str(tmp_path)) is None
 
 
 def test_get_drive_service_returns_none_for_empty_path():

@@ -32,6 +32,7 @@ backups/*
 __pycache__/
 *.py[cod]
 .venv/
+.venv-oauth/
 venv/
 *.egg-info/
 .pytest_cache/

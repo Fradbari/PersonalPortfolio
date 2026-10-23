@@ -5,15 +5,16 @@ import socket
 import httplib2
 import pytest
 from google.auth.exceptions import RefreshError
+from google.oauth2.credentials import Credentials
 from googleapiclient.errors import HttpError
 
 from app import drive
 from app.backup import BACKUP_PREFIX
 from app.config import settings
-from app.drive import PROBE_PREFIX, classify_drive_error, redact, run_gdrive_probe
+from app.drive import PROBE_PREFIX, classify_drive_error, get_drive_service, redact, run_gdrive_probe
 
 FOLDER = "FOLDERSENTINEL123"
-SA_NAME = "SASENTINELPATH456.json"
+SA_NAME = "TOKENSENTINELPATH456.json"
 
 
 def http_error(status, reason=None, folder=FOLDER, raw_content=None):
@@ -90,7 +91,7 @@ def sa_path(tmp_path, monkeypatch):
     path = tmp_path / SA_NAME
     path.write_text("{}")
     monkeypatch.setattr(settings, "gdrive_backup_folder_id", FOLDER)
-    monkeypatch.setattr(settings, "google_sa_key_path", str(path))
+    monkeypatch.setattr(settings, "google_oauth_token_path", str(path))
     monkeypatch.setattr(settings, "ai_api_key", "")
     return str(path)
 
@@ -115,23 +116,71 @@ def test_ok(monkeypatch, sa_path):
     assert_clean(res, sa_path)
 
 
-def test_sa_missing_empty_and_absent(monkeypatch, tmp_path):
+def test_auth_missing_empty_and_absent(monkeypatch, tmp_path):
     fake = FakeDrive()
     monkeypatch.setattr(drive, "get_drive_service", lambda _p: fake)
     for path in ("", str(tmp_path / "nope.json")):
         res = run_gdrive_probe(path, FOLDER)
-        assert (res.outcome, res.stage) == ("sa_missing", "config")
+        assert (res.outcome, res.stage) == ("auth_missing", "config")
     assert fake.calls == []
 
 
-def test_sa_invalid_real_parse(monkeypatch, tmp_path):
+def test_auth_missing_when_path_is_directory(monkeypatch, tmp_path):
+    fake = FakeDrive()
+    monkeypatch.setattr(drive, "get_drive_service", lambda _p: fake)
+    res = run_gdrive_probe(str(tmp_path), FOLDER)
+    assert (res.outcome, res.stage) == ("auth_missing", "config")
+    assert fake.calls == []
+
+
+def test_auth_invalid_real_parse(monkeypatch, tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text("non json {")
     res = run_gdrive_probe(str(bad), FOLDER)
-    assert (res.outcome, res.stage) == ("sa_invalid", "config")
+    assert (res.outcome, res.stage) == ("auth_invalid", "config")
     incomplete = tmp_path / "inc.json"
-    incomplete.write_text('{"type": "service_account"}')
-    assert run_gdrive_probe(str(incomplete), FOLDER).outcome == "sa_invalid"
+    incomplete.write_text("{}")
+    assert run_gdrive_probe(str(incomplete), FOLDER).outcome == "auth_invalid"
+
+
+@pytest.mark.parametrize("exc_type", [ValueError, KeyError, TypeError])
+def test_loader_error_is_auth_invalid(monkeypatch, sa_path, caplog, exc_type):
+    def loader(_path, _scopes=None):
+        raise exc_type(f"boom {sa_path} {FOLDER}")
+
+    monkeypatch.setattr(Credentials, "from_authorized_user_file", staticmethod(loader))
+    with caplog.at_level("DEBUG"):
+        res = run_gdrive_probe(sa_path, FOLDER)
+    assert (res.outcome, res.stage) == ("auth_invalid", "config")
+    assert_clean(res, sa_path)
+    assert FOLDER not in caplog.text and sa_path not in caplog.text and SA_NAME not in caplog.text
+
+
+def test_get_drive_service_uses_oauth_user_credentials(monkeypatch, sa_path):
+    seen = {}
+    sentinel_creds = object()
+
+    def loader(path, scopes=None):
+        seen["args"] = (path, scopes)
+        return sentinel_creds
+
+    class _Http:
+        def __init__(self, credentials, http=None):
+            seen["creds"] = credentials
+            seen["timeout"] = http.timeout
+
+    monkeypatch.setattr(Credentials, "from_authorized_user_file", staticmethod(loader))
+    monkeypatch.setattr(drive, "AuthorizedHttp", _Http)
+    monkeypatch.setattr(drive, "build", lambda *a, **k: ("service", a, k))
+    out = get_drive_service(sa_path)
+    assert seen["args"] == (sa_path, drive.DRIVE_SCOPES)
+    assert seen["creds"] is sentinel_creds and seen["timeout"] == drive.DRIVE_TIMEOUT_SECONDS
+    assert out[0] == "service"
+
+
+def test_get_drive_service_none_for_empty_or_absent(tmp_path):
+    assert get_drive_service("") is None
+    assert get_drive_service(str(tmp_path / "nope.json")) is None
 
 
 def test_folder_id_missing_zero_calls(monkeypatch, sa_path):
@@ -144,8 +193,12 @@ def test_folder_id_missing_zero_calls(monkeypatch, sa_path):
 @pytest.mark.parametrize(
     "op,exc,outcome,stage",
     [
-        ("list", RefreshError("invalid_grant"), "sa_auth_failed", "cleanup"),
-        ("create", http_error(401, "authError"), "sa_auth_failed", "write"),
+        ("list", RefreshError("x", {"error": "invalid_grant"}), "auth_expired", "cleanup"),
+        ("list", RefreshError("x", {"error": "invalid_client"}), "auth_invalid", "cleanup"),
+        ("list", RefreshError("invalid_grant"), "auth_invalid", "cleanup"),
+        ("create", http_error(401, "authError"), "auth_expired", "write"),
+        ("create", http_error(403, "insufficientPermissions"), "auth_invalid", "write"),
+        ("create", http_error(403, "ACCESS_TOKEN_SCOPE_INSUFFICIENT"), "auth_invalid", "write"),
         ("list", http_error(404, "notFound"), "folder_not_found", "cleanup"),
         ("create", http_error(404, "notFound"), "folder_not_found", "write"),
         ("create", http_error(403, "insufficientFilePermissions"), "permission_denied", "write"),
@@ -181,16 +234,16 @@ def test_get_drive_service_unexpected_error_is_redacted(monkeypatch, sa_path, ca
     assert sa_path not in caplog.text and SA_NAME not in caplog.text
 
 
-def test_get_drive_service_none_is_sa_missing(monkeypatch, sa_path):
+def test_get_drive_service_none_is_auth_missing(monkeypatch, sa_path):
     monkeypatch.setattr(drive, "get_drive_service", lambda _p: None)
     res = run_gdrive_probe(sa_path, FOLDER)
-    assert (res.outcome, res.stage) == ("sa_missing", "config")
+    assert (res.outcome, res.stage) == ("auth_missing", "config")
 
 
-def test_sa_invalid_precedes_folder_id_missing(monkeypatch, tmp_path):
+def test_auth_invalid_precedes_folder_id_missing(monkeypatch, tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text("non json {")
-    assert run_gdrive_probe(str(bad), "").outcome == "sa_invalid"
+    assert run_gdrive_probe(str(bad), "").outcome == "auth_invalid"
 
 
 def test_google_reason_with_folder_id_is_redacted(monkeypatch, sa_path):
@@ -260,8 +313,23 @@ def test_orphan_cleanup_error_interrupts(monkeypatch, sa_path):
 
 def test_quota_message_names_cause_and_remedy(monkeypatch, sa_path):
     res = probe(monkeypatch, sa_path, FakeDrive(fail={"create": http_error(403, "storageQuotaExceeded")}))
-    assert "Service Account senza quota di storage propria" in res.message
-    assert "Shared Drive" in res.message and "OAuth" in res.message
+    assert "Spazio Google Drive esaurito o limite di richieste" in res.message
+    assert "service account" not in res.message.lower()
+
+
+def test_no_message_mentions_service_account():
+    for text in drive._MESSAGES.values():
+        assert "service account" not in text.lower() and "google_sa_key_path" not in text.lower()
+    assert not any(key.startswith("sa_") for key in drive._MESSAGES)
+
+
+def test_auth_messages_name_remedy():
+    assert "GOOGLE_OAUTH_TOKEN_PATH" in drive._MESSAGES["auth_missing"]
+    assert "rigenera il token" in drive._MESSAGES["auth_invalid"]
+    assert "rigenera il token" in drive._MESSAGES["auth_expired"]
+    assert "Testing" in drive._MESSAGES["auth_expired"]
+    assert "drive.file" in drive._MESSAGES["folder_not_found"]
+    assert "client OAuth" in drive._MESSAGES["api_disabled"]
 
 
 def test_error_details_string_gives_no_reason():
@@ -272,21 +340,21 @@ def test_error_details_string_gives_no_reason():
 
 def test_redact_literal_multiple_overlapping_and_empty(monkeypatch):
     monkeypatch.setattr(settings, "gdrive_backup_folder_id", "abc")
-    monkeypatch.setattr(settings, "google_sa_key_path", "/s/abc/key.json")
+    monkeypatch.setattr(settings, "google_oauth_token_path", "/s/abc/tok.json")
     monkeypatch.setattr(settings, "ai_api_key", "")
-    out = redact("p=/s/abc/key.json f=abc a.c")
-    assert out == "p=<google_sa_key_path> f=<gdrive_backup_folder_id> a.c"
+    out = redact("p=/s/abc/tok.json f=abc a.c")
+    assert out == "p=<google_oauth_token_path> f=<gdrive_backup_folder_id> a.c"
 
 
 def test_redact_empty_values_leave_text_unchanged(monkeypatch):
-    for key in ("gdrive_backup_folder_id", "google_sa_key_path", "ai_api_key"):
+    for key in ("gdrive_backup_folder_id", "google_oauth_token_path", "ai_api_key"):
         monkeypatch.setattr(settings, key, "")
     assert redact("abc") == "abc"
 
 
 def test_redact_ai_api_key(monkeypatch):
     monkeypatch.setattr(settings, "gdrive_backup_folder_id", "")
-    monkeypatch.setattr(settings, "google_sa_key_path", "")
+    monkeypatch.setattr(settings, "google_oauth_token_path", "")
     monkeypatch.setattr(settings, "ai_api_key", "K3Y")
     assert redact("x K3Y y") == "x <ai_api_key> y"
 
@@ -343,9 +411,32 @@ def test_refresh_error_retryable_is_network_error():
     assert classify_drive_error(exc, "cleanup") == ("network_error", None, None)
 
 
-def test_refresh_error_not_retryable_is_sa_auth_failed():
-    assert classify_drive_error(RefreshError("invalid_grant"), "cleanup") == ("sa_auth_failed", None, None)
-    assert classify_drive_error(RefreshError("x", retryable=False), "cleanup") == ("sa_auth_failed", None, None)
+def test_refresh_error_invalid_grant_is_auth_expired():
+    exc = RefreshError("x", {"error": "invalid_grant"})
+    assert classify_drive_error(exc, "cleanup") == ("auth_expired", None, None)
+
+
+def test_refresh_error_other_or_unstructured_is_auth_invalid():
+    # Senza prova strutturata non si dichiara "scaduto": mai dal testo del messaggio.
+    assert classify_drive_error(RefreshError("x", {"error": "invalid_client"}), "cleanup")[0] == "auth_invalid"
+    assert classify_drive_error(RefreshError("invalid_grant"), "cleanup")[0] == "auth_invalid"
+    assert classify_drive_error(RefreshError("x", "invalid_grant"), "cleanup")[0] == "auth_invalid"
+    assert classify_drive_error(RefreshError("x", {}), "cleanup")[0] == "auth_invalid"
+    assert classify_drive_error(RefreshError("x", retryable=False), "cleanup")[0] == "auth_invalid"
+
+
+def test_refresh_error_invalid_grant_but_retryable_is_network_error():
+    exc = RefreshError("x", {"error": "invalid_grant"}, retryable=True)
+    assert classify_drive_error(exc, "cleanup") == ("network_error", None, None)
+
+
+def test_refresh_error_content_never_reaches_output(monkeypatch, sa_path, caplog):
+    exc = RefreshError(f"token {sa_path} {FOLDER}", {"error": "invalid_grant", "error_description": FOLDER})
+    with caplog.at_level("DEBUG"):
+        res = probe(monkeypatch, sa_path, FakeDrive(fail={"list": exc}))
+    assert res.outcome == "auth_expired"
+    assert_clean(res, sa_path)
+    assert FOLDER not in caplog.text and sa_path not in caplog.text
 
 
 def test_refresh_error_retryable_in_probe(monkeypatch, sa_path):

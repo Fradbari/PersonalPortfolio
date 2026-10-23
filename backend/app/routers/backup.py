@@ -135,18 +135,18 @@ def _drive_and_retention(result, drive: dict) -> dict:
     # tratta il 404 come cartella mancante solo in "cleanup"/"write").
     stage = "config"
     try:
-        # Ordine dei controlli (coerente con run_gdrive_probe): prima la SA, poi il
-        # folder id. Con folder id vuoto nessun upload (fix G2, rettifica ADR-0031):
-        # senza `parents` il file finirebbe nella radice del Drive della SA.
-        # get_drive_service() e' dentro il try: una Service Account key presente
-        # ma malformata/corrotta solleva un'eccezione da from_service_account_file()
+        # Ordine dei controlli (coerente con run_gdrive_probe): prima il token OAuth, poi
+        # il folder id. Con folder id vuoto nessun upload (fix G2, rettifica ADR-0031):
+        # senza `parents` il file finirebbe nella radice del Drive.
+        # get_drive_service() e' dentro il try: un token OAuth presente ma
+        # malformato/corrotto solleva un'eccezione da from_authorized_user_file()
         # (non solo "file assente" - quello ritorna None senza eccezione) e deve
         # restare best-effort come il resto del blocco Drive (ADR-0004/ADR-0018).
         # Costruisce solo il client, nessuna chiamata di rete.
-        service = get_drive_service(settings.google_sa_key_path)
+        service = get_drive_service(settings.google_oauth_token_path)
         if service is None:
-            drive["outcome"] = "sa_missing"
-            drive["error"] = "Service Account non montata: upload Drive skippato."
+            drive["outcome"] = "auth_missing"
+            drive["error"] = outcome_message("auth_missing")
         elif not settings.gdrive_backup_folder_id:
             drive["outcome"] = "folder_id_missing"
             drive["error"] = outcome_message("folder_id_missing")
@@ -157,9 +157,9 @@ def _drive_and_retention(result, drive: dict) -> dict:
             drive["uploaded"] = True
             stage = "cleanup"  # rotazione: list + delete, come la pulizia orfani del probe
             drive_deleted = apply_drive_retention(service, settings.gdrive_backup_folder_id, backup_retention)
-    except Exception as exc:  # SA malformata/rete/permessi Drive: best-effort (ADR-0004/ADR-0018)
+    except Exception as exc:  # token OAuth malformato/rete/permessi Drive: best-effort (ADR-0004/ADR-0018)
         if stage == "config" and isinstance(exc, (ValueError, KeyError, TypeError)):
-            outcome, status = "sa_invalid", None  # come run_gdrive_probe: chiave non parsabile
+            outcome, status = "auth_invalid", None  # come run_gdrive_probe: token non parsabile
         else:
             outcome, status, _reason = classify_drive_error(exc, stage)
         drive["outcome"] = outcome
@@ -202,7 +202,7 @@ def gdrive_test():
     if not _probe_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="Test di connessione già in corso.")
     try:
-        result = run_gdrive_probe(settings.google_sa_key_path, settings.gdrive_backup_folder_id)
+        result = run_gdrive_probe(settings.google_oauth_token_path, settings.gdrive_backup_folder_id)
     finally:
         _probe_lock.release()
     return dataclasses.asdict(result)

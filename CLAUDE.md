@@ -13,7 +13,7 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
 - Backend: Python 3.12 + FastAPI (ETL: pandas/openpyxl). Unico writer sul DB.
 - Storage: SQLite in **WAL mode** (`data/portfolio.db`). Migrazioni: **Alembic**.
 - Dashboard: Metabase (Fase 3) su **replica read-only** atomica; affiancata da UI React (Fase 5, container singolo servito da FastAPI).
-- Backup: Service Account Google Drive + locale (Fase 4).
+- Backup: OAuth utente Google Drive (scope `drive.file`, ADR-0035) + locale (Fase 4).
 - Infra: `docker-compose.yml`, volumi persistenti, secrets a runtime.
 
 ## Regole non negoziabili
@@ -29,7 +29,7 @@ automatico e predisposizione AI. **One-click** Docker (Windows ora, Raspberry ar
 6. **`/settings` è l'unico punto di configurazione esposto all'utente** (ADR-0027): nessuna pagina
    si costruisce un proprio pannello di impostazioni. Vincolo di prodotto permanente.
 7. **Nessun valore di secret o di identificatore di risorsa privata attraversa un endpoint o l'UI**
-   (ADR-0027, blacklist `AI_API_KEY` · `GOOGLE_SA_KEY_PATH` · `GDRIVE_BACKUP_FOLDER_ID`). Perimetro
+   (ADR-0027, blacklist `AI_API_KEY` · `GOOGLE_OAUTH_TOKEN_PATH` · `GDRIVE_BACKUP_FOLDER_ID`, ADR-0035). Perimetro
    diverso dalla regola 1: quella difende il repository, questa la **superficie HTTP** — un secret
    può essere fuori dai commit e uscire lo stesso da una risposta JSON. `GOOGLE_API_KEY` **non
    esiste** in questo progetto e non va introdotta.
@@ -42,7 +42,17 @@ F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico 
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64 ·
 **F8-F14 roadmap in 3 blocchi**.
 
-**Fase corrente: BLOCCO C CHIUSO, MERGIATO E PUSHATO; AMBIENTE RESETTATO A `0006` VUOTO** (F10 test
+**Rimedio Drive in corso sul branch `drive-oauth`** (ADR-0035, piano
+[docs/superpowers/plans/drive-oauth-plan.md](docs/superpowers/plans/drive-oauth-plan.md)): la Service
+Account è dismessa e sostituita da **OAuth utente** (refresh token, scope `drive.file`, cartella creata
+dall'app, script `scripts/gdrive_oauth_setup.py` eseguito dall'utente sul proprio host). Esiti del probe
+`sa_*` → `auth_*`; blacklist `GOOGLE_SA_KEY_PATH` → `GOOGLE_OAUTH_TOKEN_PATH`; hook pre-commit esteso
+ai marcatori quotati dei token. T1-T8 su branch, **CP2 dal vivo superato il 2026-10-23** (probe `ok`,
+upload su Drive, rotazione retention, probe `ok` dopo lo spostamento della cartella), review finale
+Opus 5.5 fatta; **restano il merge (solo su ok utente), la revoca della vecchia chiave SA e
+l'esito dell'avviso "app non verificata" (non registrato)**; nessuna revision Alembic (`alembic heads` = `0006`). Stato del Blocco C sotto.
+
+**Fase precedente: BLOCCO C CHIUSO, MERGIATO E PUSHATO; AMBIENTE RESETTATO A `0006` VUOTO** (F10 test
 Drive · F14 storicità chat AI). Codice di C su `master` da `55e2b79`; T10 + fix della review finale con
 `c18a86c` (2026-10-23, `--no-ff`); `origin/master` allineato (2026-10-23). Review finale whole-branch
 (claude-opus-5-5): 0 Critical, 2 Important + 8 Minor, tutti corretti salvo M5 (debito 8). **347 test
@@ -51,7 +61,7 @@ applicativo e replica rimossi, container ricostruiti (`build --no-cache`), `phas
 DB **vuoto a `0006`** (nessuna transazione, categoria, mappa categorie, impostazione). Il DB `0003`
 precedente è archiviato in `data/archive/portfolio-0003-20261023.db` (514 transazioni, 3 conti, 20
 categorie; gitignored; **non cancellare**). Prossimi passi, in ordine: (a) l'utente ricarica i dati mese
-per mese; (b) ADR separato per il rimedio Drive (Shared Drive/OAuth), senza toccare F4; (c) F7
+per mese; (b) rimedio Drive con ADR-0035 (OAuth utente, vedi sopra), senza toccare F4; (c) F7
 Raspberry ancora parcheggiata. Ripartire dal "Prompt di ripresa" in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -115,7 +125,7 @@ Attivarli quando parte la fase relativa. Collegati alla skill superpower general
 - **dashboard-agent** — Metabase, replica read-only atomica, dashboard/insight (F3). Esteso a F13:
   pannelli React complementari (saldo cumulato, cash flow, donut categorie, trend risparmio,
   confronto mese su mese, KPI), tutti su `chartConfig` condiviso. Metabase resta invariata.
-- **backup-agent** — dump SQLite + export .xlsx, Google Drive Service Account, restore (F4). Esteso a
+- **backup-agent** — dump SQLite + export .xlsx, Google Drive OAuth utente, restore (F4). Esteso a
   F10: `POST /backup/gdrive-test` con probe write→read→delete, errori sanitizzati, cleanup
   best-effort (ADR-0031).
 - **react-ui-agent** — frontend React+Vite+TS (TanStack Query, Tailwind/shadcn, Recharts), endpoint

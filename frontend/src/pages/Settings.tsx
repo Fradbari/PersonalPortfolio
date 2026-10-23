@@ -46,7 +46,7 @@ const THEME_OPTIONS: { value: Theme; label: string }[] = [
 
 const SECRET_FIELDS: { key: string; envVar: string; label: string }[] = [
   { key: 'ai_api_key', envVar: 'AI_API_KEY', label: 'Chiave provider AI' },
-  { key: 'google_sa_key_path', envVar: 'GOOGLE_SA_KEY_PATH', label: 'Service account Google Drive' },
+  { key: 'google_oauth_token_path', envVar: 'GOOGLE_OAUTH_TOKEN_PATH', label: 'Token OAuth Google Drive' },
   { key: 'gdrive_backup_folder_id', envVar: 'GDRIVE_BACKUP_FOLDER_ID', label: 'Cartella backup Google Drive' },
 ]
 

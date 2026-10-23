@@ -9,8 +9,9 @@ Guida avvio da zero. Per la guida funzionale (cosa fare una volta avviato) vedi
 - **Git**.
 - **Credenziali Google Drive (opzionali)** — solo se vuoi il backup automatico su Drive
   (Fase 4). Senza, il backup locale funziona comunque (degradazione graceful, ADR-0018 p.3).
-  Serve una Service Account (JSON key) con una cartella Drive condivisa in ruolo Editor —
-  procedura completa in [SECURITY.md § Backup su Google Drive](SECURITY.md#backup-su-google-drive-condivisione-cartella-con-la-service-account-fase-4-adr-0018).
+  Serve un client OAuth Google (tipo Desktop app) e un token generato una tantum con
+  `scripts/gdrive_oauth_setup.py` (ADR-0035) —
+  procedura completa in [SECURITY.md § Backup su Google Drive](SECURITY.md#backup-su-google-drive-oauth-utente-fase-4-adr-0018-rimedio-adr-0035).
 - **Chiave AI (opzionale)** — solo per la query in linguaggio naturale (Fase 6). Senza,
   l'endpoint `/ai/query` risponde 4xx esplicito, il resto dell'app resta invariato.
 
@@ -29,12 +30,13 @@ cp .env.example .env
 
 Variabili rilevanti in `.env` (vedi `.env.example` per l'elenco completo commentato):
 - `BACKEND_PORT` (default 8000), `METABASE_PORT` (default 3000)
-- `GOOGLE_SA_KEY_PATH` + `GDRIVE_BACKUP_FOLDER_ID` — solo se vuoi backup su Drive
+- `GOOGLE_OAUTH_TOKEN_PATH` + `GDRIVE_BACKUP_FOLDER_ID` — solo se vuoi backup su Drive
 - `AI_PROVIDER` + `AI_API_KEY` + `AI_MODEL` — solo se vuoi la query AI (**mai** `GEMINI_API_KEY`,
   la config è provider-agnostica, ADR-0023)
 
-Se usi la Service Account Google, salva il JSON in `./secrets/service_account.json` sull'host
-(montato read-only nel container, mai committato — la cartella `secrets/` è gitignored).
+Il file di token OAuth generato dallo script va nella cartella `./secrets/` dell'host (montata
+read-only su `/secrets` nel container, mai committata — è gitignored); `GOOGLE_OAUTH_TOKEN_PATH`
+punta al suo percorso nel container.
 
 ## 2. Avvio
 
@@ -71,7 +73,7 @@ per lo sviluppo locale del frontend fuori Docker.
 
 Già attivato al passo 1 (`git config core.hooksPath .githooks`). Test rapido — vedi
 [SECURITY.md § Test del hook](SECURITY.md#test-del-hook) per il comando completo: crea una
-fake Service Account key e prova a committarla, il commit deve essere **bloccato**.
+file finto con una chiave privata (o un token OAuth) e prova a committarlo, il commit deve essere **bloccato**.
 
 ## 5. Risoluzione problemi comuni
 

@@ -41,7 +41,7 @@ def _build_test_app(tmp_path, monkeypatch):
     monkeypatch.setattr(backup_router, "engine", engine)
     monkeypatch.setattr(backup_router.settings, "db_path", str(db_path))
     monkeypatch.setattr(backup_router.settings, "backup_dir", str(backup_dir))
-    monkeypatch.setattr(backup_router.settings, "google_sa_key_path", str(tmp_path / "missing_sa.json"))
+    monkeypatch.setattr(backup_router.settings, "google_oauth_token_path", str(tmp_path / "missing_token.json"))
     monkeypatch.setattr(backup_router.settings, "backup_retention", 12)
     monkeypatch.setattr(backup_router, "refresh_read_only_replica", lambda: None)
 
@@ -124,7 +124,7 @@ def test_restore_rejects_path_traversal_filename(tmp_path, monkeypatch):
     # finisce con ".db") ma contiene componenti ".." che, sotto il vecchio codice
     # (os.path.join senza basename/contenimento), farebbero uscire il path risolto
     # da settings.backup_dir (path traversal, trovato in review Task 4).
-    traversal_filename = "portfolio_backup_../../../../secrets/service_account.json.db"
+    traversal_filename = "portfolio_backup_../../../../secrets/token_file.json.db"
 
     resp = client.post("/backup/restore", json={"filename": traversal_filename, "confirm": True})
 
@@ -347,27 +347,27 @@ from test_gdrive_probe import FakeDrive, http_error
 from app import drive as drive_module
 
 SENT = "SENTINEL_FOLDER_123"
-SENT_SA = "SENTINEL_SA_PATH_456.json"
+SENT_TOKEN = "SENTINEL_TOKEN_PATH_456.json"
 
 
-def _sentinels(tmp_path, monkeypatch, *, sa_exists=True, folder=SENT):
-    sa = tmp_path / SENT_SA
-    if sa_exists:
-        sa.write_text("{}")
-    monkeypatch.setattr(backup_router.settings, "google_sa_key_path", str(sa))
+def _sentinels(tmp_path, monkeypatch, *, token_exists=True, folder=SENT):
+    token = tmp_path / SENT_TOKEN
+    if token_exists:
+        token.write_text("{}")
+    monkeypatch.setattr(backup_router.settings, "google_oauth_token_path", str(token))
     monkeypatch.setattr(backup_router.settings, "gdrive_backup_folder_id", folder)
     monkeypatch.setattr(backup_router.settings, "ai_api_key", "")
-    return str(sa)
+    return str(token)
 
 
-def _assert_no_sentinel(text, sa):
+def _assert_no_sentinel(text, token):
     assert SENT not in text
-    assert SENT_SA not in text and sa not in text
+    assert SENT_TOKEN not in text and token not in text
 
 
 def test_gdrive_test_never_leaks_sentinels_real_probe(tmp_path, monkeypatch):
     client, _e = _build_test_app(tmp_path, monkeypatch)
-    sa = _sentinels(tmp_path, monkeypatch)
+    token = _sentinels(tmp_path, monkeypatch)
     cases = {
         "404": FakeDrive(fail={"create": http_error(404, "notFound", folder=SENT)}),
         "403_quota": FakeDrive(fail={"create": http_error(403, "storageQuotaExceeded", folder=SENT)}),
@@ -379,43 +379,60 @@ def test_gdrive_test_never_leaks_sentinels_real_probe(tmp_path, monkeypatch):
         monkeypatch.setattr(drive_module, "get_drive_service", lambda _p, f=fake: f)
         resp = client.post("/backup/gdrive-test")
         assert resp.status_code == 200, name
-        _assert_no_sentinel(resp.text, sa)
+        _assert_no_sentinel(resp.text, token)
     assert client.post("/backup/gdrive-test").json()["ok"] is True
 
 
 def test_gdrive_test_never_leaks_sentinels_config_outcomes(tmp_path, monkeypatch):
     client, _e = _build_test_app(tmp_path, monkeypatch)
-    sa = _sentinels(tmp_path, monkeypatch, sa_exists=False)
+    token = _sentinels(tmp_path, monkeypatch, token_exists=False)
     resp = client.post("/backup/gdrive-test")
-    assert resp.status_code == 200 and resp.json()["outcome"] == "sa_missing"
-    _assert_no_sentinel(resp.text, sa)
+    assert resp.status_code == 200 and resp.json()["outcome"] == "auth_missing"
+    assert resp.json()["message"] == drive_module.outcome_message("auth_missing")
+    _assert_no_sentinel(resp.text, token)
 
-    sa = _sentinels(tmp_path, monkeypatch, folder="")
+    token = _sentinels(tmp_path, monkeypatch, folder="")
     monkeypatch.setattr(drive_module, "get_drive_service", lambda _p: FakeDrive())
     resp = client.post("/backup/gdrive-test")
     assert resp.json()["outcome"] == "folder_id_missing"
-    _assert_no_sentinel(resp.text, sa)
+    _assert_no_sentinel(resp.text, token)
+
+
+def test_gdrive_test_malformed_token_is_auth_invalid_and_leaks_nothing(tmp_path, monkeypatch, caplog):
+    # Parsing reale (nessun mock di get_drive_service): file presente ma non JSON.
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    token = _sentinels(tmp_path, monkeypatch)
+    with open(token, "w") as fh:
+        fh.write("non json {")
+    caplog.set_level(logging.DEBUG)
+    resp = client.post("/backup/gdrive-test")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["outcome"] == "auth_invalid" and body["ok"] is False
+    assert body["message"] == drive_module.outcome_message("auth_invalid")
+    _assert_no_sentinel(resp.text, token)
+    _assert_no_sentinel(caplog.text, token)
 
 
 def test_gdrive_test_ignores_body_and_uses_settings(tmp_path, monkeypatch):
     client, _e = _build_test_app(tmp_path, monkeypatch)
-    sa = _sentinels(tmp_path, monkeypatch)
+    token = _sentinels(tmp_path, monkeypatch)
     seen = {}
 
-    def fake_probe(sa_key_path, folder_id):
-        seen["args"] = (sa_key_path, folder_id)
-        return drive_module.run_gdrive_probe(sa_key_path, folder_id)
+    def fake_probe(token_path, folder_id):
+        seen["args"] = (token_path, folder_id)
+        return drive_module.run_gdrive_probe(token_path, folder_id)
 
     monkeypatch.setattr(backup_router, "run_gdrive_probe", fake_probe)
     monkeypatch.setattr(
         drive_module, "get_drive_service",
         lambda _p: FakeDrive(fail={"create": http_error(404, "notFound", folder="OTHER_SENTINEL")}),
     )
-    resp = client.post("/backup/gdrive-test", json={"folder_id": "OTHER_SENTINEL", "sa_key_path": "OTHER_PATH"})
+    resp = client.post("/backup/gdrive-test", json={"folder_id": "OTHER_SENTINEL", "token_path": "OTHER_PATH"})
     assert resp.status_code == 200
-    assert seen["args"] == (sa, SENT)
+    assert seen["args"] == (token, SENT)
     assert "OTHER_SENTINEL" not in resp.text and "OTHER_PATH" not in resp.text
-    _assert_no_sentinel(resp.text, sa)
+    _assert_no_sentinel(resp.text, token)
 
 
 def test_gdrive_test_lock_returns_409_then_recovers(tmp_path, monkeypatch):
@@ -435,31 +452,31 @@ def test_gdrive_test_lock_returns_409_then_recovers(tmp_path, monkeypatch):
 
 def _backup_with_404(tmp_path, monkeypatch, caplog):
     client, _e = _build_test_app(tmp_path, monkeypatch)
-    sa = _sentinels(tmp_path, monkeypatch)
+    token = _sentinels(tmp_path, monkeypatch)
     fake = FakeDrive(fail={"create": http_error(404, "notFound", folder=SENT)})
     monkeypatch.setattr(backup_router, "get_drive_service", lambda _p: fake)
     monkeypatch.setattr(drive_module, "get_drive_service", lambda _p: fake)
     caplog.set_level(logging.DEBUG)
-    return client, sa
+    return client, token
 
 
 def test_backup_drive_error_is_redacted(tmp_path, monkeypatch, caplog):
-    client, sa = _backup_with_404(tmp_path, monkeypatch, caplog)
+    client, token = _backup_with_404(tmp_path, monkeypatch, caplog)
     resp = client.post("/backup")
     assert resp.status_code == 200
     body = resp.json()
     assert body["drive_error"] and body["drive_uploaded"] is False
-    _assert_no_sentinel(resp.text, sa)
-    _assert_no_sentinel(caplog.text, sa)
+    _assert_no_sentinel(resp.text, token)
+    _assert_no_sentinel(caplog.text, token)
 
 
 def test_folder_id_absent_from_both_endpoints_same_404(tmp_path, monkeypatch, caplog):
-    client, sa = _backup_with_404(tmp_path, monkeypatch, caplog)
+    client, token = _backup_with_404(tmp_path, monkeypatch, caplog)
     for path in ("/backup", "/backup/gdrive-test"):
         resp = client.post(path)
         assert resp.status_code == 200
-        _assert_no_sentinel(resp.text, sa)
-    _assert_no_sentinel(caplog.text, sa)
+        _assert_no_sentinel(resp.text, token)
+    _assert_no_sentinel(caplog.text, token)
 
 
 import pytest  # noqa: E402

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Personal Portfolio — pre-commit secret scanner (content-based, ADR-0011)
-# Blocca il commit se un file staged contiene marcatori di Service Account / chiave privata.
+# Blocca il commit se un file staged contiene marcatori di Service Account / chiave privata /
+# token OAuth (refresh token e client secret in forma di chiave JSON quotata, ADR-0035).
 # Criterio sul CONTENUTO, non sulla dimensione: non blocca package.json/tsconfig.json legittimi.
 set -euo pipefail
 
-patterns='private_key|client_email|auth_uri|token_uri|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+patterns='private_key|client_email|auth_uri|token_uri|"refresh_token"|"client_secret"|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 blocked=0
 
 # Solo file aggiunti/modificati staged (A=added, C=copied, M=modified)
@@ -28,7 +29,7 @@ done < <(git diff --cached --name-only --diff-filter=ACM)
 if [ "$blocked" -ne 0 ]; then
   echo ""
   echo "Commit annullato: rilevato contenuto tipo-secret."
-  echo "Le Service Account key NON vanno mai committate: fornirle a runtime via volume montato / .env."
+  echo "Chiavi di Service Account e file di token OAuth (refresh token, client secret) NON vanno mai committati: fornirli a runtime via volume montato / .env."
   echo "Dettagli: docs/SECURITY.md"
   exit 1
 fi

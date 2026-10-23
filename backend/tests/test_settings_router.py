@@ -98,28 +98,48 @@ def test_get_settings_secrets_status_has_three_blacklist_keys_with_configured_bo
 # Finding 1) ---------------------------------------------------------------------
 
 
-def test_secrets_status_google_sa_key_path_false_when_file_absent(monkeypatch, tmp_path):
-    # `google_sa_key_path` ha un default non vuoto in app.config.Settings
-    # ("/secrets/service_account.json"): bool(valore) sarebbe sempre True anche
-    # a file assente. Il badge deve riflettere l'esistenza reale del file.
-    missing_path = tmp_path / "does-not-exist" / "service_account.json"
-    monkeypatch.setattr(app_settings, "google_sa_key_path", str(missing_path))
+def test_secrets_status_google_oauth_token_path_false_when_path_empty(monkeypatch):
+    # Default vuoto (ADR-0035): nessun token configurato -> badge spento.
+    monkeypatch.setattr(app_settings, "google_oauth_token_path", "")
     client, _ = _build_test_app()
 
     resp = client.get("/settings")
 
-    assert resp.json()["secrets_status"]["google_sa_key_path"]["configured"] is False
+    assert resp.json()["secrets_status"]["google_oauth_token_path"]["configured"] is False
 
 
-def test_secrets_status_google_sa_key_path_true_when_file_present(monkeypatch, tmp_path):
-    real_path = tmp_path / "service_account.json"
+def test_secrets_status_google_oauth_token_path_false_when_file_absent(monkeypatch, tmp_path):
+    # Path valorizzato ma file inesistente: il badge riflette l'esistenza reale
+    # del file (os.path.exists), non la sola valorizzazione della stringa.
+    missing_path = tmp_path / "does-not-exist" / "token.json"
+    monkeypatch.setattr(app_settings, "google_oauth_token_path", str(missing_path))
+    client, _ = _build_test_app()
+
+    resp = client.get("/settings")
+
+    assert resp.json()["secrets_status"]["google_oauth_token_path"]["configured"] is False
+
+
+def test_secrets_status_google_oauth_token_path_false_when_path_is_directory(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_settings, "google_oauth_token_path", str(tmp_path))
+    client, _ = _build_test_app()
+
+    resp = client.get("/settings")
+
+    assert resp.json()["secrets_status"]["google_oauth_token_path"]["configured"] is False
+
+
+def test_secrets_status_google_oauth_token_path_true_when_file_present(monkeypatch, tmp_path):
+    # File temporaneo con contenuto innocuo: l'esistenza basta, il contenuto non
+    # viene mai letto.
+    real_path = tmp_path / "token.json"
     real_path.write_text("{}")
-    monkeypatch.setattr(app_settings, "google_sa_key_path", str(real_path))
+    monkeypatch.setattr(app_settings, "google_oauth_token_path", str(real_path))
     client, _ = _build_test_app()
 
     resp = client.get("/settings")
 
-    assert resp.json()["secrets_status"]["google_sa_key_path"]["configured"] is True
+    assert resp.json()["secrets_status"]["google_oauth_token_path"]["configured"] is True
 
 
 def test_secrets_status_ai_api_key_false_when_empty_true_when_set(monkeypatch):
@@ -179,6 +199,20 @@ def test_put_settings_rejects_blacklist_key_with_400():
     assert resp.status_code == 400
 
 
+def test_put_settings_rejects_google_oauth_token_path_with_fixed_400_message():
+    # Stessa risposta di una chiave sconosciuta (anti-enumerazione, ADR-0027 p.8).
+    client, Session = _build_test_app()
+
+    resp = client.put("/settings", json={"google_oauth_token_path": "/x/token.json"})
+    resp_unknown = client.put("/settings", json={"does_not_exist_at_all": "x"})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == resp_unknown.json()["detail"]
+    assert "google_oauth_token_path" not in resp.text
+    with Session() as session:
+        assert session.get(Settings, "google_oauth_token_path") is None
+
+
 def test_put_settings_invalid_key_writes_nothing_even_mixed_with_valid_keys():
     client, Session = _build_test_app()
 
@@ -194,7 +228,7 @@ def test_put_settings_invalid_key_writes_nothing_even_mixed_with_valid_keys():
 
 def test_get_settings_never_leaks_blacklisted_secret_values(monkeypatch):
     monkeypatch.setattr(app_settings, "ai_api_key", "SENTINEL-AI-API-KEY")
-    monkeypatch.setattr(app_settings, "google_sa_key_path", "SENTINEL-SA-KEY-PATH")
+    monkeypatch.setattr(app_settings, "google_oauth_token_path", "SENTINEL-OAUTH-TOKEN-PATH")
     monkeypatch.setattr(app_settings, "gdrive_backup_folder_id", "SENTINEL-DRIVE-FOLDER-ID")
     client, _ = _build_test_app()
 
@@ -202,7 +236,7 @@ def test_get_settings_never_leaks_blacklisted_secret_values(monkeypatch):
 
     raw = json.dumps(resp.json())
     assert "SENTINEL-AI-API-KEY" not in raw
-    assert "SENTINEL-SA-KEY-PATH" not in raw
+    assert "SENTINEL-OAUTH-TOKEN-PATH" not in raw
     assert "SENTINEL-DRIVE-FOLDER-ID" not in raw
 
 

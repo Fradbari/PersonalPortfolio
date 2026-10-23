@@ -17,7 +17,7 @@ services:
       - ./data:/data           # DB canonico (FastAPI = unico writer)
       - ./replica:/replica     # replica read-only per Metabase (ADR-0004)
       - ./backups:/backups     # target backup locale (Fase 4)
-      - ./secrets:/secrets:ro  # Service Account key montata sola-lettura (ADR-0011)
+      - ./secrets:/secrets:ro  # token OAuth Drive montato sola-lettura (ADR-0011, ADR-0035)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]

@@ -13,7 +13,7 @@ from test_backup_router import _build_test_app
 from test_gdrive_probe import FakeDrive, http_error
 
 SENTINEL = "SENTINEL_FOLDER_T7B_ZZZ"
-SENTINEL_PATH = "SENTINEL_SA_T7B_PATH.json"
+SENTINEL_PATH = "SENTINEL_TOKEN_T7B_PATH.json"
 KEYS = {"at", "trigger", "local_ok", "drive_uploaded", "drive_outcome", "message"}
 
 
@@ -22,13 +22,13 @@ def _reset_last(monkeypatch):
     monkeypatch.setattr(backup_router, "_last_backup", None)
 
 
-def _with_sa(tmp_path, monkeypatch, folder):
-    sa = tmp_path / SENTINEL_PATH
-    sa.write_text("{}")
-    monkeypatch.setattr(backup_router.settings, "google_sa_key_path", str(sa))
+def _with_token(tmp_path, monkeypatch, folder):
+    token = tmp_path / SENTINEL_PATH
+    token.write_text("{}")
+    monkeypatch.setattr(backup_router.settings, "google_oauth_token_path", str(token))
     monkeypatch.setattr(backup_router.settings, "gdrive_backup_folder_id", folder)
     monkeypatch.setattr(backup_router.settings, "ai_api_key", "")
-    return str(sa)
+    return str(token)
 
 
 def test_initial_state_is_null(tmp_path, monkeypatch):
@@ -46,7 +46,7 @@ def test_manual_trigger_recorded(tmp_path, monkeypatch):
     assert last["trigger"] == "manual"
     assert last["local_ok"] is True
     assert last["drive_uploaded"] is False
-    assert last["drive_outcome"] == "sa_missing"
+    assert last["drive_outcome"] == "auth_missing"
 
 
 def test_startup_trigger_recorded(tmp_path, monkeypatch):
@@ -66,7 +66,7 @@ def test_last_returns_copy(tmp_path, monkeypatch):
 
 def test_drive_error_sanitized_everywhere(tmp_path, monkeypatch, caplog):
     client, _e = _build_test_app(tmp_path, monkeypatch)
-    sa = _with_sa(tmp_path, monkeypatch, SENTINEL)
+    token_path = _with_token(tmp_path, monkeypatch, SENTINEL)
     fake = FakeDrive(fail={"create": http_error(404, "notFound", folder=SENTINEL)})
     monkeypatch.setattr(backup_router, "get_drive_service", lambda _p: fake)
     caplog.set_level(logging.DEBUG)
@@ -76,17 +76,17 @@ def test_drive_error_sanitized_everywhere(tmp_path, monkeypatch, caplog):
 
     for text in (post.text, last.text, caplog.text):
         assert SENTINEL not in text
-        assert sa not in text and SENTINEL_PATH not in text
+        assert token_path not in text and SENTINEL_PATH not in text
     assert last.json()["last"]["drive_outcome"] == "folder_not_found"
     assert last.json()["last"]["drive_uploaded"] is False
 
 
 def test_startup_local_failure_log_sanitized(tmp_path, monkeypatch, caplog):
     client, _e = _build_test_app(tmp_path, monkeypatch)
-    sa = _with_sa(tmp_path, monkeypatch, SENTINEL)
+    token_path = _with_token(tmp_path, monkeypatch, SENTINEL)
 
     def boom(*_a, **_k):
-        raise OSError(f"disk error su {sa} cartella {SENTINEL}")
+        raise OSError(f"disk error su {token_path} cartella {SENTINEL}")
 
     monkeypatch.setattr(backup_router, "create_backup", boom)
     caplog.set_level(logging.DEBUG)
@@ -95,7 +95,7 @@ def test_startup_local_failure_log_sanitized(tmp_path, monkeypatch, caplog):
 
     assert "Backup all'avvio fallito" in caplog.text
     assert SENTINEL not in caplog.text
-    assert sa not in caplog.text and SENTINEL_PATH not in caplog.text
+    assert token_path not in caplog.text and SENTINEL_PATH not in caplog.text
     last = client.get("/backup/last")
     assert SENTINEL not in last.text and SENTINEL_PATH not in last.text
     assert last.json()["last"]["trigger"] == "startup"
@@ -122,7 +122,7 @@ def test_local_failure_recorded_and_reraised(tmp_path, monkeypatch):
 
 def test_empty_folder_id_skips_drive_g2(tmp_path, monkeypatch):
     client, _e = _build_test_app(tmp_path, monkeypatch)
-    _with_sa(tmp_path, monkeypatch, "")
+    _with_token(tmp_path, monkeypatch, "")
     calls = []
 
     def spy_service(_p):
@@ -152,12 +152,34 @@ def test_empty_folder_id_skips_drive_g2(tmp_path, monkeypatch):
     assert last["message"] == outcome_message("folder_id_missing")
 
 
-def test_sa_missing_checked_before_folder_id(tmp_path, monkeypatch):
+def test_auth_missing_checked_before_folder_id(tmp_path, monkeypatch):
     client, _e = _build_test_app(tmp_path, monkeypatch)
     monkeypatch.setattr(backup_router.settings, "gdrive_backup_folder_id", "")
-    # SA non montata (path di _build_test_app inesistente) + folder vuoto -> sa_missing
+    # token non montato (path di _build_test_app inesistente) + folder vuoto -> auth_missing
     client.post("/backup")
-    assert client.get("/backup/last").json()["last"]["drive_outcome"] == "sa_missing"
+    assert client.get("/backup/last").json()["last"]["drive_outcome"] == "auth_missing"
+
+
+def test_auth_missing_message_is_outcome_message_and_leaks_nothing(tmp_path, monkeypatch, caplog):
+    # Token path configurato ma file assente: il testo e' quello dell'esito (nessun testo SA
+    # fisso nel router) e il path non esce da risposta, ultimo esito, log.
+    client, _e = _build_test_app(tmp_path, monkeypatch)
+    missing = str(tmp_path / SENTINEL_PATH)
+    monkeypatch.setattr(backup_router.settings, "google_oauth_token_path", missing)
+    monkeypatch.setattr(backup_router.settings, "gdrive_backup_folder_id", SENTINEL)
+    monkeypatch.setattr(backup_router.settings, "ai_api_key", "")
+    caplog.set_level(logging.DEBUG)
+
+    resp = client.post("/backup")
+    last = client.get("/backup/last")
+
+    assert resp.json()["drive_uploaded"] is False
+    assert resp.json()["drive_error"] == outcome_message("auth_missing")
+    assert "service account" not in resp.json()["drive_error"].lower()
+    assert last.json()["last"]["drive_outcome"] == "auth_missing"
+    assert last.json()["last"]["message"] == outcome_message("auth_missing")
+    for text in (resp.text, last.text, caplog.text):
+        assert SENTINEL not in text and missing not in text and SENTINEL_PATH not in text
 
 
 def test_concurrent_run_backup_keeps_state_consistent(tmp_path, monkeypatch):
@@ -223,7 +245,7 @@ def test_last_at_is_utc_with_explicit_offset(tmp_path, monkeypatch):
 def test_retention_failure_after_upload_message_does_not_contradict_uploaded(tmp_path, monkeypatch, caplog):
     # (A) upload riuscito, poi errore nella rotazione Drive.
     client, _e = _build_test_app(tmp_path, monkeypatch)
-    sa = _with_sa(tmp_path, monkeypatch, SENTINEL)
+    token_path = _with_token(tmp_path, monkeypatch, SENTINEL)
     uploads = []
     monkeypatch.setattr(backup_router, "get_drive_service", lambda _p: FakeDrive())
     monkeypatch.setattr(backup_router, "upload_file", lambda *a, **k: uploads.append(a[1]))
@@ -246,24 +268,24 @@ def test_retention_failure_after_upload_message_does_not_contradict_uploaded(tmp
     assert last["drive_outcome"] == "permission_denied"
     assert last["message"] == body["drive_error"]
     for text in (resp.text, str(last), caplog.text):
-        assert SENTINEL not in text and sa not in text and SENTINEL_PATH not in text
+        assert SENTINEL not in text and token_path not in text and SENTINEL_PATH not in text
     assert "stage=cleanup" in caplog.text
 
 
 def test_retention_404_is_folder_not_found(tmp_path, monkeypatch):
     client, _e = _build_test_app(tmp_path, monkeypatch)
-    _with_sa(tmp_path, monkeypatch, SENTINEL)
+    _with_token(tmp_path, monkeypatch, SENTINEL)
     monkeypatch.setattr(backup_router, "get_drive_service", lambda _p: FakeDrive(fail={"list": http_error(404, "notFound")}))
     monkeypatch.setattr(backup_router, "upload_file", lambda *a, **k: "id")
     client.post("/backup")
     assert client.get("/backup/last").json()["last"]["drive_outcome"] == "folder_not_found"
 
 
-def test_malformed_sa_key_is_sa_invalid_like_probe(tmp_path, monkeypatch, caplog):
-    # (B) chiave SA presente ma non valida: parsing reale in get_drive_service.
+def test_malformed_token_is_auth_invalid_like_probe(tmp_path, monkeypatch, caplog):
+    # (B) token OAuth presente ma non valido: parsing reale in get_drive_service.
     client, _e = _build_test_app(tmp_path, monkeypatch)
-    sa = _with_sa(tmp_path, monkeypatch, SENTINEL)
-    with open(sa, "w") as fh:
+    token_path = _with_token(tmp_path, monkeypatch, SENTINEL)
+    with open(token_path, "w") as fh:
         fh.write("non json {")
     caplog.set_level(logging.DEBUG)
 
@@ -272,10 +294,10 @@ def test_malformed_sa_key_is_sa_invalid_like_probe(tmp_path, monkeypatch, caplog
 
     assert resp.status_code == 200
     assert body["drive_uploaded"] is False
-    assert body["drive_error"] == outcome_message("sa_invalid")
+    assert body["drive_error"] == outcome_message("auth_invalid")
     last = client.get("/backup/last").json()["last"]
-    assert last["drive_outcome"] == "sa_invalid"
-    assert last["message"] == outcome_message("sa_invalid")
+    assert last["drive_outcome"] == "auth_invalid"
+    assert last["message"] == outcome_message("auth_invalid")
     assert set(last) == KEYS
     for text in (resp.text, str(last), caplog.text):
-        assert SENTINEL not in text and sa not in text and SENTINEL_PATH not in text
+        assert SENTINEL not in text and token_path not in text and SENTINEL_PATH not in text

@@ -18,7 +18,7 @@ Il problema: dati frammentati, nessuna dashboard, nessun backup strutturato, sto
 | Frontend/dashboard | **Ibrido** — Metabase subito (disaccoppiato, vedi C1), UI React custom in fase successiva |
 | Storage canonico | **SQLite** (file singolo, WAL mode) |
 | Vecchio Google Sheet master | **Migrazione una tantum**, con **dry-run** obbligatorio |
-| Backup Google Drive | **Service Account** (JSON key, headless) |
+| Backup Google Drive | **OAuth utente** (refresh token, scope `drive.file`, ADR-0035; la Service Account iniziale è dismessa) |
 | Backup trigger | **Manuale (pulsante)** sempre; **automatico solo all'avvio** se l'utente lo attiva in settings |
 | Esposizione | **Solo rete locale** per ora — no auth/reverse proxy in questa fase (rivedere se esposto fuori) |
 | Cadenza ingestion | **Upload manuale** per ora — automazione da Drive rimandata |
@@ -51,7 +51,7 @@ Il problema: dati frammentati, nessuna dashboard, nessun backup strutturato, sto
 - **N-NF3** No vendor lock-in: dati sempre esportabili in formato aperto (`.xlsx`/`.csv`/SQLite).
 - **N-NF4** Manutenibilità solo-dev: stack minimale, pochi servizi, config centralizzata.
 - **N-NF5** Interfaccia moderna, esposta su webpage.
-- **N-NF6** Sicurezza: key AI e Service Account fuori dal repo, **con enforcement** (vedi C3).
+- **N-NF6** Sicurezza: key AI e credenziali Google (oggi token OAuth, ADR-0035) fuori dal repo, **con enforcement** (vedi C3).
 - **N-NF7** Idempotenza e integrità dati. **Vincolo hash**: `hash_dedup` calcolato SOLO su campi stabili `(date_troncata_al_giorno, amount, category, account, type)` — **mai** su campi editabili post-import (`comment`, `tag`, timestamp con secondi).
 
 ---
@@ -155,7 +155,7 @@ Layered, container-per-responsabilità, unico `docker-compose.yml`.
 
 ### Fase 4 — Backup automatico
 - **N-F9**: pulsante manuale sempre disponibile; job all'avvio **opzionale** (attivato in settings dall'utente).
-- Dump SQLite + export "in chiaro" `.xlsx` → locale + Drive (Service Account).
+- Dump SQLite + export "in chiaro" `.xlsx` → locale + Drive (OAuth utente dal rimedio ADR-0035; in origine Service Account).
 - Retention/rotazione + procedura restore documentata e testata.
 - **Milestone**: backup manuale e (se attivo) all'avvio producono file su Drive e locale; restore ripristina lo stato.
 
@@ -460,6 +460,7 @@ mergiato e pushato su `origin/master`** (`37f93ac`). |
 | F13 Dashboard avanzate — **Blocco B** | ☑ fatto e mergiato (2026-10-14, `ab9c360`) | Pianificata 2026-07-21 (ADR-0030), spec/piano 2026-07-25 (task T12-T14). Nessuna revision. **Rettifica ADR-0030 p.3 applicata**: `GET /insights/panels` (T13, commit `0a4fb75`) è endpoint **nuovo**, `GET /insights` resta byte-identico (i suoi 5 test invariati) e `ai/tools.py` non toccato — verificato dal reviewer sul diff, non sul solo report. **Rettifica additiva ADR-0026 applicata**: `--chart-6`/`--chart-7` (T12, commit `13d616f`), indici 0-4 di `chartColors` invariati byte per byte. **CP1b (checkpoint umano) superato**: verifica dal vivo del controller su copia scratch del DB reale (mai `data/portfolio.db`) — `kpi` incrocia esattamente i totali noti F2 (income 19497.14€, expense 9937.70€), `months` tronca senza riempire, donut ≤7 con "Altro" reale, `month_over_month` si ancora davvero all'ultimo mese con dati (giugno) e non al mese corrente wall-clock. **Due punti che il contratto congelato non decideva alla lettera, confermati esplicitamente dall'utente**: `month_over_month` ignora la finestra `months`/`date_from` di default (resta ancorato ai dati reali più recenti); `month_over_month` è solo-uscite come `category_donut`. Sei pannelli React (T14, commit `0e1760f`+fix `0092227`) fatti: **replace** dei 3 pannelli sovrapposti di `Dashboard.tsx` con le versioni nuove da `/insights/panels` (saldo cumulato ora windowed, non più all-time), **keep** "Saldo per conto" (nessun equivalente nel nuovo contratto), **add** trend risparmio/confronto mese su mese/KPI. Un giro di review ha trovato "patrimonio" **dentro il commento che lo vietava** (non tracciato da git al momento del check dell'implementer — bug del metodo, non solo del codice), corretto e riverificato via confronto hash dei blob. "Saldo cumulato", mai "patrimonio" (verificato da grep a radice di parola, non dalla disciplina — ADR-0030). Metabase invariata. **CP2 superato (2026-09-04)**: giudizio visivo da browser reale confermato dall'utente — 7 pannelli leggibili in dark, wording corretto, `--chart-6/7` non collidono, il dialog del 409 mostra la gemella. Era l'ultimo checkpoint umano del blocco. |
 | F10 Backup GDrive + test — **Blocco C** | ☑ fatto e mergiato (`55e2b79`, 2026-10-21); T10 + fix review finale mergiati (`c18a86c`, 2026-10-23) | Branch `f10-f14-drive-chat` (pushato), mergiato su `master` prima di T10 (`55e2b79`). `POST /backup/gdrive-test` probe write→read→delete con 12 esiti tipizzati (ADR-0031 + rettifiche 2026-10-14/19/20), errori sanitizzati con `redact()` anche in `POST /backup` (D7). **T7b** (`9d276a1`, aggiunto a CP2): `GET /backup/last` (ultimo esito in memoria, anche del backup all'avvio) e folder id vuoto → nessun upload (G2). **T8** (`07c2df3`): UI su `/backup-restore` (test solo al click + banner "Ultimo backup"). **`ece6dfe`**: esito `api_disabled` (403 `accessNotConfigured`, emerso al probe reale). **CP2 chiuso (2026-10-20)**: probe reale dal container → `quota_exceeded`/`storageQuotaExceeded` (SA senza quota su Drive personale): F10 funziona e il messaggio indica il rimedio; **rimedio (Shared Drive o OAuth utente) = ADR separato dopo C**. Fughe in risposta/log: 0. **Chiusura (T10, 2026-10-23)**: review finale whole-branch (Opus 5.5, `git diff 749d86c...HEAD`): 0 Critical; fix I1 (`TransportError`→`network_error`), M1 (stage reale in `POST /backup`, `sa_invalid` per chiave malformata), M2 (`RefreshError` retryable→`network_error`), M3 (`at` in UTC con offset), M4 (contrasto `--success`, 5.18:1 light / 8.61:1 dark, `0d77393`), M8b. Debiti: D4 con vincolo logger `googleapiclient`, rimedio Drive (ADR separato), TODO vite, replica Metabase. |
 | F14 Storicità chat AI — **Blocco C** | ☑ fatto e mergiato (`55e2b79`, 2026-10-21); T10 + fix review finale mergiati (`c18a86c`, 2026-10-23) | Revision `0006` `chat_sessions`/`chat_messages` (+ `truncated`, D8). Ordine ADR-0032 p.3 rispettato con evidenza rosso→verde in 4 tempi (ledger). Troncamento nell'adapter, persistenza solo dal router, registry read-only. **CP1 approvato (2026-10-14)**; **CP2**: Gemini reale, follow-up col contesto, ripresa dopo riavvio, restore da `0005` → chat vuote + 404. **T9** (`4994192`): UI `/assistente-ai` (sessione in URL, traccia tool per messaggio, "Azzera storico" a 2 step, 404 da `ApiError.status`), `ai_history_max_turns ≥ 0`. **CP3 chiuso (2026-10-21)**: light+dark approvati; fix `--destructive` dark (`d8a7de7`, contrasto 2.0→6.6:1, rettifica ADR-0026). Suite **331 verdi**, `alembic heads` = `0006`, `phase` `"14"` / `0.1.0-phase14`. **Chiusura (T10, 2026-10-23)**: review finale Opus 5.5 (0 Critical, 2 Important + 8 Minor): fix I2 (rilettura sessione con `populate_existing`, evita 500 se la sessione sparisce durante la risposta; test rosso→verde), M6 (adapter scarta turni assistant vuoti col loro user), M7 (`redact()` sul 502), M8a (test history + tool-call). **M5 parcheggiato** (id sessione riusato, debito 8). **Suite 347 verdi**, `alembic heads` = `0006`; upgrade head + downgrade fino a `0002` su DB scratch, 3 trigger FTS ricreati. **Gate arm64 sull'immagine finale: GO** (`pp-backend:arm64-t10`, DB vuoto scratch, `aarch64`): alembic 0001→0006, `/health` `phase:"14"`, `0.1.0-phase14` in `/openapi.json`, `ENABLE_FTS5` + virtual table fts5 di prova. |
+| Rimedio Drive — OAuth utente (post Blocco C) | ◐ su branch `drive-oauth`, CP2 superato (merge su ok utente) | ADR-0035, piano `docs/superpowers/plans/drive-oauth-plan.md`. Causa: una Service Account non ha quota e non scrive in un My Drive personale (probe → `quota_exceeded`). Soluzione: OAuth utente (refresh token, scope `drive.file`), cartella creata dall'app, Service Account dismessa. Eseguito in subagent-driven-development, review dopo ogni task: **T1** `drive.py` credenziali `from_authorized_user_file` + esiti `sa_*`→`auth_*` (781996b); **T2** config/router (`GOOGLE_OAUTH_TOKEN_PATH`, default vuoto; 8cf70d4); **T3** blacklist `google_oauth_token_path` (262f14e); **T4** `scripts/gdrive_oauth_setup.py` sul host (7298c81 + fix scrittura atomica/mode 0600 `63f4202` dopo 1 Important di review); **T5** hook pre-commit con marcatori quotati (3b21201); **T6** UI Settings/Backup (f404932); **T7** documenti. Suite 382 verdi + 2 skip (POSIX-only), `alembic heads` = `0006` (nessuna revision), nessuna nuova dipendenza nell'immagine. **CP1 superato** (contratto 12 esiti, script riletto). **CP2 dal vivo superato (2026-10-23)**: probe `ok`, `drive_uploaded: true`, rotazione retention su Drive, probe `ok` dopo lo spostamento della cartella. **T8** review finale whole-branch (Opus 5.5): 0 Critical, 2 Important documentali corretti + minor. Restano: merge su ok utente, revoca della vecchia chiave SA, esito dell'avviso "app non verificata" (non registrato). |
 
 Legenda: ☐ da fare · ◐ in corso · ☑ fatto/verificato.
 
@@ -510,11 +511,10 @@ Emersi durante il Blocco C e **non** risolti da esso. Ognuno richiede un task pr
    **Vincolo per chi lo risolverà** (review finale C): `googleapiclient.discovery` logga a DEBUG
    `URL being requested` con la query `'<folder_id>' in parents`; un livello DEBUG globale violerebbe
    la regola 7. Fissare i logger `googleapiclient` e `httplib2` ad almeno WARNING.
-5. **Rimedio Drive per Service Account senza quota → ADR separato.** CP2 ha provato dal vivo che
-   `POST /backup/gdrive-test` risponde `quota_exceeded` (403 `storageQuotaExceeded`): una SA non può
-   creare file in un Drive personale. Soluzioni: Shared Drive (Workspace) oppure OAuth utente. Cambia
-   F4, quindi spec e ADR propri **dopo** il Blocco C. Nel frattempo il backup locale funziona e F10
-   dice la verità.
+5. **Rimedio Drive per Service Account senza quota → ADR-0035 (in corso su `drive-oauth`).** CP2 del
+   Blocco C aveva provato dal vivo che `POST /backup/gdrive-test` risponde `quota_exceeded` (403
+   `storageQuotaExceeded`): una SA non può creare file in un Drive personale. Risolto sul branch con
+   OAuth utente; CP2 dal vivo superato il 2026-10-23, il debito si chiude con il merge.
 6. **TODO `vite.config.ts`**: il bypass del proxy per `/backup-restore` non gestisce la query
    string (`TODO(Blocco-C)`). Oggi la pagina Backup non acquisisce query string, quindi è latente.
 7. **Replica Metabase non rigenerata dopo la cancellazione di chat** (`DELETE /ai/sessions` con
@@ -527,6 +527,17 @@ Emersi durante il Blocco C e **non** risolti da esso. Ognuno richiede un task pr
    chat di B. Rischio basso (single-user). Il rimedio è una revision `0007` con
    `sqlite_autoincrement=True`, che però non copre il restore: decisione di prodotto, non meccanica.
 
+9. **Retention Drive: file cestinati e escape del folder id** (review finale ADR-0035, preesistente):
+   `list_backup_files` in `drive.py` non filtra `trashed = false`, quindi un backup cestinato a mano
+   conta ancora nella retention (restano N-1 coppie vive), e la query non fa l'escape del folder id
+   come invece il probe. Task proprio, fuori dal rimedio.
+10. **Hook pre-commit e SIGPIPE** (preesistente): con `set -o pipefail`, `git show | grep -Eq` può dare
+    141 su file oltre ~64 KB con il marcatore all'inizio, e il file non viene bloccato. I file di
+    token (< 1 KB) non sono toccati. Rimedio: `grep -Eq "$patterns" <(git show ":$file")`.
+11. **Script di setup OAuth, minor rimandati**: nessun pre-check che la directory padre di `--out`
+    esista (il consenso andrebbe ripetuto), nessuna guardia `--out` = `--client-secrets` con `--force`,
+    nessun timeout di `run_local_server`, `google-auth-httplib2` non pinnata nello script.
+
 Non è debito: `/impostazioni` con `-1` su `ai_history_max_turns` è bloccato dal fumetto di validazione
 nativa del browser (`min=0`); il backend rifiuta comunque il valore. Accettato dall'utente.
 
@@ -536,7 +547,16 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
-Fase corrente: BLOCCO C CHIUSO, MERGIATO E PUSHATO; AMBIENTE RESETTATO A 0006 VUOTO.
+Fase corrente: RIMEDIO DRIVE (ADR-0035) SUL BRANCH `drive-oauth`, NON ANCORA MERGIATO. Piano:
+docs/superpowers/plans/drive-oauth-plan.md. T1-T7 su branch (OAuth utente, scope drive.file, cartella
+creata dall'app, Service Account dismessa, esiti sa_*→auth_*, blacklist google_oauth_token_path, hook
+con marcatori quotati, script scripts/gdrive_oauth_setup.py, UI, doc). 382 test verdi + 2 skip,
+`alembic heads` = 0006. CP1 e CP2 superati (CP2 dal vivo 2026-10-23: probe `ok`, upload su Drive,
+rotazione retention, probe `ok` dopo lo spostamento della cartella); T8 review finale Opus 5.5 fatta.
+DA FARE: merge `--no-ff` su ok dell'utente (nessun push senza richiesta); l'utente revoca la vecchia
+chiave SA e sistema `.env.example`; esito dell'avviso "app non verificata" non registrato; il caso
+negativo (cartella creata a mano → 404) e la rotazione del token non sono stati provati dal vivo.
+Base: BLOCCO C CHIUSO, MERGIATO E PUSHATO; AMBIENTE RESETTATO A 0006 VUOTO.
 Codice di C su master da 55e2b79; T10 + fix della review finale con c18a86c (2026-10-23, --no-ff);
 origin/master allineato. phase "14" / 0.1.0-phase14, 347 test backend verdi, `alembic heads` = 0006,
 gate arm64 GO. Review finale Opus 5.5: 0 Critical, fix applicati, M5 parcheggiato (debito 8).
@@ -576,13 +596,13 @@ PROSSIMI PASSI, in quest'ordine:
        inatteso in `/conti`;
     7. conteggio `transactions` nel DB cresce esattamente di `imported` (lettura RO, mai scrivere).
     Consigliato un backup manuale (`/backup-restore` → "Backup ora") dopo ogni mese verificato.
-(b) ADR SEPARATO per il rimedio Drive (Shared Drive o OAuth utente): il probe reale ha dato
-    `quota_exceeded` (una Service Account non scrive in un Drive personale). Spec e ADR propri;
-    modifica F4. Non implementarlo senza ADR.
+(b) RIMEDIO DRIVE: deciso con ADR-0035 (OAuth utente) e implementato sul branch `drive-oauth`;
+    CP2 e T8 fatti, resta il merge su ok utente (vedi "Fase corrente"). Procedura utente in
+    docs/SECURITY.md («Backup su Google Drive»).
 (c) F7 Raspberry arm64: ◐ PARCHEGGIATA in attesa hardware (Pi 4 4GB), runbook docs/RASPBERRY-PI.md e
     punti aperti P1-P4. Debiti aperti: sezioni "Debito tecnico aperto" di questo file.
 VERIFICHE LASCIATE ALL'UTENTE (richiedono .env/secrets, che l'agente non legge): probe Drive da
-`/backup-restore` (atteso `quota_exceeded` finché non c'è l'ADR) e domanda reale a Gemini da
+`/backup-restore` (atteso `ok` dopo il setup OAuth di ADR-0035, `auth_missing` prima) e domanda reale a Gemini da
 `/assistente-ai` sul DB popolato.
 
 Vincoli dell'ambiente:
