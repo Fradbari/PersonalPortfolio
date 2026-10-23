@@ -34,7 +34,9 @@ def test_whitelist_has_exactly_the_six_expected_keys():
 
 
 def test_blacklist_contains_the_three_secrets():
-    assert BLACKLIST == frozenset({"ai_api_key", "google_sa_key_path", "gdrive_backup_folder_id"})
+    assert BLACKLIST == frozenset(
+        {"ai_api_key", "google_oauth_token_path", "gdrive_backup_folder_id"}
+    )
 
 
 # --- get_effective: precedenza default (letterale) --> db, per le 3 chiavi senza env ---

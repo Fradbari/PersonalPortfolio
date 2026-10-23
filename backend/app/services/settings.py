@@ -64,7 +64,7 @@ WHITELIST: dict[str, dict[str, Any]] = {
 }
 
 BLACKLIST: frozenset[str] = frozenset(
-    {"ai_api_key", "google_sa_key_path", "gdrive_backup_folder_id"}
+    {"ai_api_key", "google_oauth_token_path", "gdrive_backup_folder_id"}
 )
 
 
