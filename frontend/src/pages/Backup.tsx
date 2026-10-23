@@ -15,7 +15,11 @@ interface BackupsResponse {
   backups: string[] // timestamp, es. "20260715_143022" — NON filename (backend/app/backup.py::list_local_backups)
 }
 
-// Contratto backend/app/drive.py::ProbeResult
+// Contratto backend/app/drive.py::ProbeResult (ADR-0035, autenticazione OAuth utente).
+// La UI mostra `outcome` e `message` cosi' come arrivano, senza logica per-esito:
+// il rimedio e' gia' nel messaggio del backend. Esiti possibili: ok, auth_missing,
+// auth_invalid, folder_id_missing, auth_expired, folder_not_found, permission_denied,
+// api_disabled, quota_exceeded, timeout, network_error, unexpected.
 interface ProbeResult {
   ok: boolean
   outcome: string
