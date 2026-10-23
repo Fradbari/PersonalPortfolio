@@ -133,6 +133,86 @@ def test_force_overwrites_and_truncates(script, monkeypatch, tmp_path, secrets_f
     assert out.read_text(encoding="utf-8") == creds.to_json()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="permessi POSIX indicativi su Windows")
+def test_force_on_permissive_existing_file_ends_with_0600(
+    script, monkeypatch, tmp_path, secrets_file
+):
+    creds = FakeCreds(FAKE_TOKEN)
+    _install_flow(monkeypatch, script, creds)
+    out = tmp_path / "token.json"
+    out.write_text("OLD", encoding="utf-8")
+    os.chmod(out, 0o644)
+
+    rc = script.main(["--client-secrets", str(secrets_file), "--out", str(out), "--force"])
+
+    assert rc == 0
+    assert out.read_text(encoding="utf-8") == creds.to_json()
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+
+
+def _failing_fdopen(*_args, **_kwargs):
+    raise OSError(f"disco pieno con {FAKE_TOKEN}")
+
+
+def _failing_replace(*_args, **_kwargs):
+    raise OSError(f"replace fallita con {FAKE_TOKEN}")
+
+
+def test_write_error_without_force_leaves_nothing(
+    script, monkeypatch, tmp_path, secrets_file, capsys
+):
+    _install_flow(monkeypatch, script, FakeCreds(FAKE_TOKEN))
+    out_dir = tmp_path / "outdir"
+    out_dir.mkdir()
+    out = out_dir / "token.json"
+    monkeypatch.setattr(os, "fdopen", _failing_fdopen)
+
+    rc = script.main(["--client-secrets", str(secrets_file), "--out", str(out)])
+
+    assert rc != 0
+    assert os.listdir(out_dir) == []
+    captured = capsys.readouterr()
+    assert FAKE_TOKEN not in captured.out + captured.err
+    assert str(tmp_path) not in captured.out + captured.err
+
+
+@pytest.mark.parametrize("failure", ["fdopen", "replace"])
+def test_write_error_with_force_preserves_old_file(
+    script, monkeypatch, tmp_path, secrets_file, capsys, failure
+):
+    _install_flow(monkeypatch, script, FakeCreds(FAKE_TOKEN))
+    out_dir = tmp_path / "outdir"
+    out_dir.mkdir()
+    out = out_dir / "token.json"
+    out.write_text("OLD-CONTENT", encoding="utf-8")
+    if failure == "fdopen":
+        monkeypatch.setattr(os, "fdopen", _failing_fdopen)
+    else:
+        monkeypatch.setattr(os, "replace", _failing_replace)
+
+    rc = script.main(["--client-secrets", str(secrets_file), "--out", str(out), "--force"])
+
+    assert rc != 0
+    assert out.read_text(encoding="utf-8") == "OLD-CONTENT"
+    assert os.listdir(out_dir) == ["token.json"]
+    captured = capsys.readouterr()
+    assert FAKE_TOKEN not in captured.out + captured.err
+    assert str(tmp_path) not in captured.out + captured.err
+
+
+def test_success_leaves_no_temporary_files(script, monkeypatch, tmp_path, secrets_file):
+    _install_flow(monkeypatch, script, FakeCreds(FAKE_TOKEN))
+    out_dir = tmp_path / "outdir"
+    out_dir.mkdir()
+    out = out_dir / "token.json"
+    out.write_text("OLD", encoding="utf-8")
+
+    rc = script.main(["--client-secrets", str(secrets_file), "--out", str(out), "--force"])
+
+    assert rc == 0
+    assert os.listdir(out_dir) == ["token.json"]
+
+
 @pytest.mark.parametrize("missing", [None, ""])
 def test_missing_refresh_token_fails_and_writes_nothing(
     script, monkeypatch, tmp_path, secrets_file, capsys, missing

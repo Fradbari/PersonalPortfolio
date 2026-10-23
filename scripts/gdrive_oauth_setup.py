@@ -12,6 +12,7 @@ e non ha path di default. Non stampa mai token, secret o path completi.
 import argparse
 import os
 import sys
+import tempfile
 
 # Scope minimo (ADR-0035 p.2): l'app vede solo i file che crea.
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
@@ -74,11 +75,49 @@ def _error(message):
     return 1
 
 
-def _write_credentials(out_path, content, force):
-    flags = os.O_WRONLY | os.O_CREAT | (os.O_TRUNC if force else os.O_EXCL)
-    fd = os.open(out_path, flags, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+def _write_fd(fd, content):
+    """Scrive su un descrittore appena aperto e lo chiude sempre."""
+    try:
+        fh = os.fdopen(fd, "w", encoding="utf-8")
+    except BaseException:
+        os.close(fd)
+        raise
+    with fh:
         fh.write(content)
+
+
+def _write_credentials(out_path, content, force):
+    """Scrive il file di credenziali con mode 0600, mai parziale a destinazione.
+
+    Senza force: creazione esclusiva del definitivo (FileExistsError se esiste); se la scrittura
+    fallisce il file, creato da noi, viene rimosso. Con force: file temporaneo 0600 nella stessa
+    directory poi sostituzione atomica, cosi' il vecchio file resta intatto in caso di errore e
+    il mode finale e' sempre 0600 (O_TRUNC non lo cambierebbe su un file preesistente).
+    """
+    if not force:
+        fd = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            _write_fd(fd, content)
+        except BaseException:
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+            raise
+        return
+
+    directory = os.path.dirname(os.path.abspath(out_path))
+    # mkstemp: O_EXCL, mode 0600, nome casuale (non contiene il contenuto).
+    fd, tmp_path = tempfile.mkstemp(prefix=".oauth-", suffix=".tmp", dir=directory)
+    try:
+        _write_fd(fd, content)
+        os.replace(tmp_path, out_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _create_folder(creds, name):
