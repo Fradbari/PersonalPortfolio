@@ -175,7 +175,7 @@ def test_auth_missing_message_is_outcome_message_and_leaks_nothing(tmp_path, mon
 
     assert resp.json()["drive_uploaded"] is False
     assert resp.json()["drive_error"] == outcome_message("auth_missing")
-    assert "Service Account" not in resp.json()["drive_error"]
+    assert "service account" not in resp.json()["drive_error"].lower()
     assert last.json()["last"]["drive_outcome"] == "auth_missing"
     assert last.json()["last"]["message"] == outcome_message("auth_missing")
     for text in (resp.text, last.text, caplog.text):

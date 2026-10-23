@@ -120,6 +120,15 @@ def test_secrets_status_google_oauth_token_path_false_when_file_absent(monkeypat
     assert resp.json()["secrets_status"]["google_oauth_token_path"]["configured"] is False
 
 
+def test_secrets_status_google_oauth_token_path_false_when_path_is_directory(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_settings, "google_oauth_token_path", str(tmp_path))
+    client, _ = _build_test_app()
+
+    resp = client.get("/settings")
+
+    assert resp.json()["secrets_status"]["google_oauth_token_path"]["configured"] is False
+
+
 def test_secrets_status_google_oauth_token_path_true_when_file_present(monkeypatch, tmp_path):
     # File temporaneo con contenuto innocuo: l'esistenza basta, il contenuto non
     # viene mai letto.

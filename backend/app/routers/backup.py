@@ -157,7 +157,7 @@ def _drive_and_retention(result, drive: dict) -> dict:
             drive["uploaded"] = True
             stage = "cleanup"  # rotazione: list + delete, come la pulizia orfani del probe
             drive_deleted = apply_drive_retention(service, settings.gdrive_backup_folder_id, backup_retention)
-    except Exception as exc:  # SA malformata/rete/permessi Drive: best-effort (ADR-0004/ADR-0018)
+    except Exception as exc:  # token OAuth malformato/rete/permessi Drive: best-effort (ADR-0004/ADR-0018)
         if stage == "config" and isinstance(exc, (ValueError, KeyError, TypeError)):
             outcome, status = "auth_invalid", None  # come run_gdrive_probe: token non parsabile
         else:

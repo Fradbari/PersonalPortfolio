@@ -172,7 +172,7 @@ def run_gdrive_probe(token_path: str, folder_id: str) -> ProbeResult:
             elapsed_ms=int((time.monotonic() - started) * 1000),
         )
 
-    if not token_path or not os.path.exists(token_path):
+    if not token_path or not os.path.isfile(token_path):
         return result("auth_missing", "config")
     try:
         service = get_drive_service(token_path)
@@ -239,7 +239,7 @@ def run_gdrive_probe(token_path: str, folder_id: str) -> ProbeResult:
 def get_drive_service(token_path: str):
     """None se il token OAuth non e' montato a runtime (degradazione graceful,
     ADR-0018 punto 3). Credenziali utente con refresh token, scope drive.file (ADR-0035)."""
-    if not token_path or not os.path.exists(token_path):
+    if not token_path or not os.path.isfile(token_path):
         return None
     credentials = Credentials.from_authorized_user_file(token_path, DRIVE_SCOPES)
     authorized_http = AuthorizedHttp(credentials, http=httplib2.Http(timeout=DRIVE_TIMEOUT_SECONDS))

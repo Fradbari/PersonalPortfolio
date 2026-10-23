@@ -125,6 +125,14 @@ def test_auth_missing_empty_and_absent(monkeypatch, tmp_path):
     assert fake.calls == []
 
 
+def test_auth_missing_when_path_is_directory(monkeypatch, tmp_path):
+    fake = FakeDrive()
+    monkeypatch.setattr(drive, "get_drive_service", lambda _p: fake)
+    res = run_gdrive_probe(str(tmp_path), FOLDER)
+    assert (res.outcome, res.stage) == ("auth_missing", "config")
+    assert fake.calls == []
+
+
 def test_auth_invalid_real_parse(monkeypatch, tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text("non json {")
@@ -306,12 +314,12 @@ def test_orphan_cleanup_error_interrupts(monkeypatch, sa_path):
 def test_quota_message_names_cause_and_remedy(monkeypatch, sa_path):
     res = probe(monkeypatch, sa_path, FakeDrive(fail={"create": http_error(403, "storageQuotaExceeded")}))
     assert "Spazio Google Drive esaurito o limite di richieste" in res.message
-    assert "Service Account" not in res.message
+    assert "service account" not in res.message.lower()
 
 
 def test_no_message_mentions_service_account():
     for text in drive._MESSAGES.values():
-        assert "Service Account" not in text and "GOOGLE_SA_KEY_PATH" not in text
+        assert "service account" not in text.lower() and "google_sa_key_path" not in text.lower()
     assert not any(key.startswith("sa_") for key in drive._MESSAGES)
 
 
