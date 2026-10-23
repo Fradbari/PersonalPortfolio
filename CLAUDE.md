@@ -42,15 +42,15 @@ F0 fondazione/sicurezza/ADR · F1 ingestion My Finance · F2 migrazione storico 
 F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6 AI · F7 Raspberry arm64 ·
 **F8-F14 roadmap in 3 blocchi**.
 
-**Fase corrente: BLOCCO C CHIUSO SUL BRANCH `blocco-c-t10`, in attesa di ok utente per il merge su
-`master`** (F10 test Drive · F14 storicità chat AI). Il codice di C è già su `master` (`55e2b79`,
-2026-10-21, mergiato prima di T10 su richiesta dell'utente); `blocco-c-t10` aggiunge T10 (phase/
-version `"14"` / `0.1.0-phase14`, SECURITY/USER_GUIDE/ARCHITECTURE) e i fix della review finale
-whole-branch (claude-opus-5-5 su `git diff 749d86c...HEAD`: 0 Critical, 2 Important + 8 Minor, tutti
-corretti salvo M5 parcheggiato). **347 test verdi**, `alembic heads` = `0006`, gate arm64 GO
-sull'immagine finale (2026-10-23). Prossimo passo: ⛔ ok utente → merge `blocco-c-t10` → `master`;
-push e rebuild del container solo con ok (DB reale a `0003`: backup preventivo). Poi ADR per il
-rimedio Drive (Shared Drive/OAuth). Ripartire dal "Prompt di ripresa" in
+**Fase corrente: BLOCCO C CHIUSO E MERGIATO SU `master`** (F10 test Drive · F14 storicità chat AI).
+Codice di C su `master` da `55e2b79` (2026-10-21); T10 + fix della review finale mergiati con
+`c18a86c` (2026-10-23, `--no-ff`, branch `blocco-c-t10`): phase/version `"14"` / `0.1.0-phase14`,
+SECURITY/USER_GUIDE/ARCHITECTURE. Review finale whole-branch (claude-opus-5-5 su
+`git diff 749d86c...HEAD`): 0 Critical, 2 Important + 8 Minor, tutti corretti salvo M5 parcheggiato
+(debito 8). **347 test verdi**, `alembic heads` = `0006`, gate arm64 GO sull'immagine finale.
+`master` **non pushato** (avanti a `origin/master`: verificare con `git log origin/master..master`);
+push e rebuild del container solo con ok (DB reale a `0003`: backup preventivo). Prossimo passo: ADR
+per il rimedio Drive (Shared Drive/OAuth). Ripartire dal "Prompt di ripresa" in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 **Blocco B chiuso e mergiato su `master`** (F11 manuale + F12 filtri/FTS5 + F13 dashboard).
@@ -99,7 +99,7 @@ ADR-0026 → ADR-0033):
   (`ENABLE_FTS5`) + virtual table fts5 di prova (mai `SELECT fts5_version()`: non esiste),
   eseguito **come primo task** (go/no-go) e ripetuto prima del merge (GO). Spec e piano di dettaglio
   approvati 2026-07-25; produce **ADR-0034** + rettifiche a 0026/0028/0029/0030.
-- **Blocco C** (mergiato `55e2b79`; T10 + review + fix su `blocco-c-t10`, merge in attesa di ok) `f10-f14-drive-chat` — F10 `POST /backup/gdrive-test` (probe write→read→delete) ·
+- **Blocco C** (chiuso e mergiato: `55e2b79` + T10/fix `c18a86c`) `f10-f14-drive-chat` — F10 `POST /backup/gdrive-test` (probe write→read→delete) ·
   F14 storicità chat AI (`chat_sessions`/`chat_messages`, modello sempre read-only).
 
 Ordine vincolante: **A prima di B**. C è indipendente funzionalmente, **non** nella catena Alembic.

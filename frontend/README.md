@@ -8,7 +8,7 @@ pending, Conti, Backup, Assistente AI, Impostazioni). In produzione **non gira s
 ## Stato fase corrente (2026-10-23)
 F5 (questa UI) completata. F0-F6 + F-DEBT completate; F7 (Raspberry Pi arm64) ◐ parcheggiata in
 attesa hardware. Blocchi A (F8-F9) e B (F11-F13) chiusi e mergiati su `master`. **Fase corrente:
-Blocco C chiuso sul branch `blocco-c-t10`, merge su `master` in attesa di ok** (F10 backup GDrive + F14 chat AI). Guida funzionale utente:
+Blocco C chiuso e mergiato su `master` (`c18a86c`)** (F10 backup GDrive + F14 chat AI). Guida funzionale utente:
 [../docs/USER_GUIDE.md](../docs/USER_GUIDE.md). Guida
 avvio: [../docs/GETTING_STARTED.md](../docs/GETTING_STARTED.md).
 
