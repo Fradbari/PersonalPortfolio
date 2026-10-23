@@ -171,7 +171,8 @@ ricostruire cosa è andato perso.
 - **La replica read-only di Metabase** è una copia intera del database (ADR-0004): include
   `chat_sessions` e `chat_messages`, quindi chiunque abbia accesso a Metabase può interrogarle con
   una domanda SQL. La replica si rigenera solo dopo un import o un restore, **non** dopo
-  "Azzera storico": le chat azzerate restano leggibili in Metabase fino al refresh successivo.
+  "Azzera storico" né dopo l'eliminazione di una singola conversazione: le chat cancellate restano
+  leggibili in Metabase fino al refresh successivo.
   Se la cosa conta, rigenera la replica con un import o un restore (debito: un refresh esplicito
   dopo l'azzeramento non esiste, vedi ARCHITECTURE.md).
 

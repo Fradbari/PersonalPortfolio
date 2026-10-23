@@ -5,10 +5,10 @@ pending, Conti, Backup, Assistente AI, Impostazioni). In produzione **non gira s
 (`vite build`) e servita dal container FastAPI (`backend/`) sulla stessa porta 8000 — vedi
 [ADR-0019](../docs/DECISIONS.md). La porta 5173 sotto è solo per sviluppo locale (`npm run dev`).
 
-## Stato fase corrente (2026-10-21)
+## Stato fase corrente (2026-10-23)
 F5 (questa UI) completata. F0-F6 + F-DEBT completate; F7 (Raspberry Pi arm64) ◐ parcheggiata in
 attesa hardware. Blocchi A (F8-F9) e B (F11-F13) chiusi e mergiati su `master`. **Fase corrente:
-Blocco C mergiato su `master` (`55e2b79`) prima di T10** (F10 backup GDrive + F14 chat AI). Guida funzionale utente:
+Blocco C chiuso sul branch `blocco-c-t10`, merge su `master` in attesa di ok** (F10 backup GDrive + F14 chat AI). Guida funzionale utente:
 [../docs/USER_GUIDE.md](../docs/USER_GUIDE.md). Guida
 avvio: [../docs/GETTING_STARTED.md](../docs/GETTING_STARTED.md).
 
