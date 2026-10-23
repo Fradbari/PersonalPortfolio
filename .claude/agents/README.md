@@ -19,9 +19,9 @@ Setup Metabase, replica read-only atomica, dashboard trend/categorie/saldo; da F
 `services/insights.py` si **estende**, mai si duplica; la parola "patrimonio" è vietata in UI (ADR-0030).
 
 ## backup-agent.md
-Dump SQLite + export .xlsx, upload Google Drive via Service Account, backup locale, retention, restore; da F10 il test di connettività Drive.
-**Fasi**: F4, F10. **Vincoli**: Service Account mai nel repo (ADR-0011); restore richiede conferma esplicita;
-il probe `gdrive-test` **scrive davvero** e non espone mai folder id o path SA (ADR-0031);
+Dump SQLite + export .xlsx, upload Google Drive via OAuth utente (drive.file), backup locale, retention, restore; da F10 il test di connettività Drive.
+**Fasi**: F4, F10. **Vincoli**: token OAuth mai nel repo (ADR-0011, ADR-0035); restore richiede conferma esplicita;
+il probe `gdrive-test` **scrive davvero** e non espone mai folder id o path del token (ADR-0031);
 dopo un restore va ricostruito l'indice FTS5 (ADR-0029).
 
 ## react-ui-agent.md

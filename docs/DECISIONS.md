@@ -278,6 +278,10 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   test (`pytest`, `httpx`); primo modulo del repo con test automatici, precedente
   per le fasi successive. Rischio residuo accettato: restore non testato contro
   backup provenienti da Drive (solo locali) — coerente con la scelta del punto 5.
+- **Rettifica 2026-10-23 (ADR-0035)**: il punto 3 (Service Account) è sostituito da **OAuth utente**
+  con scope `drive.file` e cartella creata dall'app; la Service Account non ha quota e non scrive in
+  un My Drive personale. Variabile `GOOGLE_OAUTH_TOKEN_PATH` al posto di `GOOGLE_SA_KEY_PATH`.
+  Restore (punto 5) invariato.
 
 ## ADR-0019 — UI React (F5): scope read+write pieno, single-container, stack Vite+TS+TanStack Query+Tailwind/shadcn+Recharts, Metabase invariata
 
@@ -1098,6 +1102,11 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
   "abilita Google Drive API nel progetto della SA". Vale anche per `drive_error` di
   `POST /backup` e per `GET /backup/last` (stessa `classify_drive_error`). Contratto per il resto
   invariato; test sul probe e sulla classificazione.
+- **Rettifica 2026-10-23 (ADR-0035)**: i tre esiti legati alla Service Account sono rinominati e
+  ridefiniti — `sa_missing` → `auth_missing`, `sa_invalid` → `auth_invalid`, `sa_auth_failed` →
+  `auth_expired` — e `folder_not_found`/`quota_exceeded` cambiano significato e messaggio. Il
+  numero di esiti (12) e la forma di `ProbeResult` restano invariati; la classificazione resta sui
+  soli campi strutturati.
 
 ## ADR-0032 — Persistenza chat AI (F14): `chat_sessions`/`chat_messages`, finestra di contesto troncata nell'adapter, scrittura solo dal router, modello sempre read-only (specializza ADR-0023)
 
@@ -1318,7 +1327,9 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
 
 ## ADR-0035 — Backup Drive con OAuth utente: refresh token, scope `drive.file`, cartella creata dall'app, Service Account dismessa (specializza ADR-0018 p.3; rettifica ADR-0008, ADR-0011, ADR-0027 p.6, ADR-0031)
 
-- Status: Proposed — Fase: rimedio post-Blocco C (nessuna fase di roadmap) — Data: 2026-10-23
+- Status: Accepted — Fase: rimedio post-Blocco C (nessuna fase di roadmap) — Data: 2026-10-23
+  (verifiche dal vivo ancora da fare al CP2: probe/backup/rotazione, spostamento della cartella,
+  avviso "app non verificata"; esiti riportati in coda a questo ADR)
 - Piano: `docs/superpowers/plans/drive-oauth-plan.md`
 - Contesto: il probe di F10 dal container (`/backup-restore` → "Test connessione") restituisce
   `quota_exceeded`, stage `write`, HTTP 403 `storageQuotaExceeded`. La cartella è condivisa con la

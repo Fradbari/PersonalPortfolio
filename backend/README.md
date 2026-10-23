@@ -11,7 +11,7 @@ app/
   models.py            modelli SQLAlchemy
   config.py            settings (pydantic-settings)
   backup.py            orchestrazione backup (dump SQLite + export .xlsx)
-  drive.py              integrazione Google Drive (Service Account)
+  drive.py              integrazione Google Drive (OAuth utente, ADR-0035)
   routers/              endpoint FastAPI (accounts, ai, backup, categories, imports, insights, settings, transactions)
   services/              logica di dominio (es. insights.py)
   ai/                     provider AI (Gemini), tool registry read-only
@@ -52,7 +52,7 @@ pytest
   suffisso `#n` delle ripetizioni manuali volute (ADR-0028) — l'importer confronta sempre l'hash
   base, mai il suffisso.
 - **Nessun secret o identificatore di risorsa privata in una risposta HTTP** (ADR-0027): whitelist
-  esplicita su `/settings`, blacklist permanente per `AI_API_KEY`, `GOOGLE_SA_KEY_PATH`,
+  esplicita su `/settings`, blacklist permanente per `AI_API_KEY`, `GOOGLE_OAUTH_TOKEN_PATH`,
   `GDRIVE_BACKUP_FOLDER_ID`. `GOOGLE_API_KEY` non esiste in questo progetto.
 - **Nessun tool di scrittura esposto al modello AI** (ADR-0023/0032): la persistenza delle
   conversazioni è scritta dal router, mai da un tool.
