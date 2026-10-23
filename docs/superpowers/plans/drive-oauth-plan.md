@@ -1,6 +1,6 @@
 # Rimedio Drive — OAuth utente al posto della Service Account — piano implementativo
 
-- **Status**: Bozza, da approvare — 2026-10-23
+- **Status**: Approvato ed eseguito (T1-T8, CP1/CP2 superati) — 2026-10-23; merge in attesa di ok utente
 - **ADR**: ADR-0035 in `docs/DECISIONS.md` (Proposed → Accepted in T7)
 - **Branch**: `drive-oauth` (aperto da `master` `1571813`)
 - **Esecuzione**: subagent-driven-development, un task di codice per subagent, review dopo

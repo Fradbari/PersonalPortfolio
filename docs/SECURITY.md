@@ -40,6 +40,11 @@ chmod +x .githooks/pre-commit
 printf '{"private_key":"-----BEGIN PRIVATE KEY-----\\nX\\n-----END PRIVATE KEY-----","client_email":"x@y"}' > /tmp/fake_sa.json
 git add -f /tmp/fake_sa.json && git commit -m "test" ; echo "exit=$?"
 # atteso: "BLOCKED ..." + exit diverso da 0. Poi: git reset /tmp/fake_sa.json
+
+# stessa prova per un token OAuth (ADR-0035): chiave JSON quotata
+printf '{"refresh_token": "x"}' > /tmp/fake_oauth.json
+git add -f /tmp/fake_oauth.json && git commit -m "test" ; echo "exit=$?"
+# atteso: "BLOCKED ..." + exit diverso da 0. Poi: git reset /tmp/fake_oauth.json
 ```
 
 ## Come fornire le credenziali a runtime
@@ -252,8 +257,10 @@ L'assistente di sviluppo non esegue questi passi, non legge i file prodotti e no
 ### Rotazione, revoca, scadenza del token
 
 - **Rotazione**: rigenera con lo stesso comando e `--force` (sostituisce il file in modo atomico,
-  con permessi 0600). Dopo la sostituzione il backend usa il nuovo token alla prima operazione
-  Drive, senza riavvio.
+  con permessi 0600). Se il **nome del file resta lo stesso**, il backend rilegge il file a ogni
+  operazione Drive e usa il nuovo token senza riavvio (comportamento atteso per costruzione, non
+  verificato dal vivo). Con un nome diverso aggiorna `GOOGLE_OAUTH_TOKEN_PATH` in `.env` e ricrea il
+  container.
 - **Revoca immediata** (token compromesso): https://myaccount.google.com/permissions → rimuovi
   l'accesso dell'app, poi rigenera. Dopo una revoca senza rigenerazione l'esito atteso è
   `auth_expired`.

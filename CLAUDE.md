@@ -47,8 +47,10 @@ F3 dashboard Metabase · F4 backup · F5 UI React · F-DEBT debito tecnico · F6
 Account è dismessa e sostituita da **OAuth utente** (refresh token, scope `drive.file`, cartella creata
 dall'app, script `scripts/gdrive_oauth_setup.py` eseguito dall'utente sul proprio host). Esiti del probe
 `sa_*` → `auth_*`; blacklist `GOOGLE_SA_KEY_PATH` → `GOOGLE_OAUTH_TOKEN_PATH`; hook pre-commit esteso
-ai marcatori quotati dei token. T1-T7 su branch, **CP2 dal vivo (probe/backup/rotazione) e merge
-ancora da fare**; nessuna revision Alembic (`alembic heads` = `0006`). Stato del Blocco C sotto.
+ai marcatori quotati dei token. T1-T8 su branch, **CP2 dal vivo superato il 2026-10-23** (probe `ok`,
+upload su Drive, rotazione retention, probe `ok` dopo lo spostamento della cartella), review finale
+Opus 5.5 fatta; **restano il merge (solo su ok utente), la revoca della vecchia chiave SA e
+l'esito dell'avviso "app non verificata" (non registrato)**; nessuna revision Alembic (`alembic heads` = `0006`). Stato del Blocco C sotto.
 
 **Fase precedente: BLOCCO C CHIUSO, MERGIATO E PUSHATO; AMBIENTE RESETTATO A `0006` VUOTO** (F10 test
 Drive · F14 storicità chat AI). Codice di C su `master` da `55e2b79`; T10 + fix della review finale con

@@ -1332,8 +1332,7 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
 ## ADR-0035 — Backup Drive con OAuth utente: refresh token, scope `drive.file`, cartella creata dall'app, Service Account dismessa (specializza ADR-0018 p.3; rettifica ADR-0008, ADR-0011, ADR-0027 p.6, ADR-0031)
 
 - Status: Accepted — Fase: rimedio post-Blocco C (nessuna fase di roadmap) — Data: 2026-10-23
-  (verifiche dal vivo ancora da fare al CP2: probe/backup/rotazione, spostamento della cartella,
-  avviso "app non verificata"; esiti riportati in coda a questo ADR)
+  (verifiche dal vivo del CP2 eseguite il 2026-10-23, esiti in coda a questo ADR)
 - Piano: `docs/superpowers/plans/drive-oauth-plan.md`
 - Contesto: il probe di F10 dal container (`/backup-restore` → "Test connessione") restituisce
   `quota_exceeded`, stage `write`, HTTP 403 `storageQuotaExceeded`. La cartella è condivisa con la
@@ -1453,10 +1452,12 @@ scrivere codice. Non modificare un ADR passato: se cambia, aggiungine uno nuovo 
     https://developers.google.com/workspace/drive/api/guides/handle-errors
   - Nota: nessuna pagina Google descrive esplicitamente il caso "upload in una cartella non creata
     dall'app con `drive.file`"; la conclusione discende dalla definizione dello scope ed è
-    confermata da segnalazioni pubbliche. Viene verificata dal vivo al CP2.
+    confermata da segnalazioni pubbliche. Il CP2 ha verificato dal vivo solo il caso positivo
+    (cartella creata dall'app); il caso negativo (cartella creata a mano → 404) non è stato provato.
 - **Esiti della verifica dal vivo (CP2, 2026-10-23, riportati dall'utente)**: probe `ok`;
   `POST /backup` con `drive_uploaded: true` e coppia `.db`/`.xlsx` presente nella cartella;
-  rotazione su Drive con `backup_retention` = 1 corretta (poi ripristinato); dopo lo spostamento della
+  rotazione della **retention** su Drive con `backup_retention` = 1 corretta (poi ripristinato; la
+  rotazione del *token* non è stata provata dal vivo); dopo lo spostamento della
   cartella dentro un'altra il probe resta `ok` (conferma il p.3: `drive.file` è legato al file, non
   alla posizione). Avviso "app non verificata" alla schermata di consenso: **esito non ancora
   registrato** (atteso assente con soli scope non-sensitive, p.4).
