@@ -1,5 +1,5 @@
-"""Upload/retention Google Drive via Service Account (ADR-0008/ADR-0018).
-Best-effort: nessuna Service Account montata -> get_drive_service ritorna None,
+"""Upload/retention Google Drive via OAuth utente (ADR-0008/ADR-0018, ADR-0035).
+Best-effort: nessun token OAuth montato -> get_drive_service ritorna None,
 mai un'eccezione che blocchi il backup locale."""
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from datetime import datetime
 
 import httplib2
 from google.auth.exceptions import RefreshError, TransportError
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -29,24 +29,40 @@ DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 DRIVE_TIMEOUT_SECONDS = 30
 PROBE_PREFIX = "portfolio_gdrive_probe_"
 _QUOTA_REASONS = {"storageQuotaExceeded", "quotaExceeded", "rateLimitExceeded", "userRateLimitExceeded"}
-# 403 con questi reason: Drive API non abilitata nel progetto GCP della SA (rilevato a CP2).
+# 403 con questi reason: Drive API non abilitata nel progetto GCP del client OAuth (rilevato a CP2).
 _API_DISABLED_REASONS = {"accessNotConfigured", "SERVICE_DISABLED"}
+# 403 con questi reason: token valido ma senza lo scope richiesto -> rigenerare il token (ADR-0035).
+_AUTH_INVALID_REASONS = {"insufficientPermissions", "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}
 _SECURITY_REF = "Vedi docs/SECURITY.md, sezione «Backup su Google Drive»."
 _MESSAGES = {
     "ok": "Connessione riuscita: scrittura, lettura e cancellazione sulla cartella Drive configurata.",
-    "sa_missing": "Service Account non montata: verifica GOOGLE_SA_KEY_PATH e il file montato. " + _SECURITY_REF,
-    "sa_invalid": "Il file della Service Account non è una chiave valida: rigenera la chiave JSON. " + _SECURITY_REF,
+    "auth_missing": (
+        "Token OAuth non configurato: genera il token con lo script di setup e imposta "
+        "GOOGLE_OAUTH_TOKEN_PATH. " + _SECURITY_REF
+    ),
+    "auth_invalid": (
+        "File del token non valido o client OAuth non più valido: rigenera il token con lo script. "
+        + _SECURITY_REF
+    ),
     "folder_id_missing": "GDRIVE_BACKUP_FOLDER_ID non configurato: nessuna scrittura eseguita. " + _SECURITY_REF,
-    "sa_auth_failed": "Autenticazione della Service Account rifiutata: chiave revocata o disabilitata, generane una nuova. " + _SECURITY_REF,
-    "folder_not_found": "Cartella non trovata o non condivisa con la Service Account. " + _SECURITY_REF,
-    "permission_denied": "Permesso insufficiente: condividi la cartella con la Service Account come Editor. " + _SECURITY_REF,
+    "auth_expired": (
+        "Autorizzazione scaduta o revocata (revoca, sei mesi di inutilizzo o app rimasta in Testing): "
+        "rigenera il token con lo script. " + _SECURITY_REF
+    ),
+    "folder_not_found": (
+        "Cartella non trovata: l'id è errato oppure la cartella non è stata creata dall'app "
+        "(scope drive.file). Usa la cartella creata dallo script. " + _SECURITY_REF
+    ),
+    "permission_denied": (
+        "Permesso insufficiente sulla cartella Drive: verifica che sia la cartella creata dallo script "
+        "con questo account. " + _SECURITY_REF
+    ),
     "api_disabled": (
-        "Google Drive API non abilitata nel progetto Google Cloud della Service Account: abilitala da "
+        "Google Drive API non abilitata nel progetto Google Cloud del client OAuth: abilitala da "
         "«API e servizi → Libreria → Google Drive API» e riprova dopo qualche minuto. " + _SECURITY_REF
     ),
     "quota_exceeded": (
-        "Quota esaurita o Service Account senza quota di storage propria: i file creati da una SA in un "
-        "Drive personale vengono rifiutati. Rimedio: Shared Drive (Google Workspace) oppure OAuth utente. "
+        "Spazio Google Drive esaurito o limite di richieste: libera spazio o riprova più tardi. "
         + _SECURITY_REF
     ),
     "timeout": "Timeout nella comunicazione con Google Drive: riprova. " + _SECURITY_REF,
@@ -77,6 +93,8 @@ def redact(text: str) -> str:
     """Sostituzione letterale dei valori sensibili noti (ADR-0031 p.3); i valori vuoti si saltano."""
     secrets = {
         "gdrive_backup_folder_id": settings.gdrive_backup_folder_id,
+        "google_oauth_token_path": settings.google_oauth_token_path,
+        # Transitorio: lo rimuove T2 insieme al campo di config (ADR-0035).
         "google_sa_key_path": settings.google_sa_key_path,
         "ai_api_key": settings.ai_api_key,
     }
@@ -98,7 +116,9 @@ def classify_drive_error(exc: Exception, stage: str) -> tuple[str, int | None, s
         if status == 404 and stage in ("cleanup", "write"):
             return "folder_not_found", status, reason
         if status == 401:
-            return "sa_auth_failed", status, reason
+            return "auth_expired", status, reason
+        if status == 403 and reason in _AUTH_INVALID_REASONS:
+            return "auth_invalid", status, reason
         if status in (403, 429) and reason in _QUOTA_REASONS:
             return "quota_exceeded", status, reason
         if status == 403 and reason in _API_DISABLED_REASONS:
@@ -107,10 +127,15 @@ def classify_drive_error(exc: Exception, stage: str) -> tuple[str, int | None, s
             return "permission_denied", status, reason
         return "unexpected", status, reason
     if isinstance(exc, RefreshError):
-        # 5xx transitorio del token endpoint: RefreshError(retryable=True), non una chiave revocata.
+        # 5xx transitorio del token endpoint: RefreshError(retryable=True), non un token revocato.
         if getattr(exc, "retryable", False):
             return "network_error", None, None
-        return "sa_auth_failed", None, None
+        # Il campo `error` si legge SOLO dal dict strutturato in args[1] (mai da str(exc)/reason/content):
+        # senza prova strutturata non si dichiara "scaduto" (ADR-0035).
+        detail = exc.args[1] if len(exc.args) > 1 else None
+        if isinstance(detail, dict) and detail.get("error") == "invalid_grant":
+            return "auth_expired", None, None
+        return "auth_invalid", None, None
     if isinstance(exc, TransportError):
         # Le credenziali si ricostruiscono a ogni probe: la prima chiamata di rete e' il refresh
         # del token, dove google_auth_httplib2 incapsula HttpLib2Error/HTTPException in TransportError.
@@ -131,7 +156,7 @@ def _log_failure(stage: str, exc: Exception, status: int | None, reason: str | N
     logger.warning(redact(f"Probe Drive fallito in {stage}: {type(exc).__name__} status={status} reason={reason}"))
 
 
-def run_gdrive_probe(sa_key_path: str, folder_id: str) -> ProbeResult:
+def run_gdrive_probe(token_path: str, folder_id: str) -> ProbeResult:
     started = time.monotonic()
     state = {"written": False, "deleted": False, "orphans": 0}
 
@@ -149,17 +174,17 @@ def run_gdrive_probe(sa_key_path: str, folder_id: str) -> ProbeResult:
             elapsed_ms=int((time.monotonic() - started) * 1000),
         )
 
-    if not sa_key_path or not os.path.exists(sa_key_path):
-        return result("sa_missing", "config")
+    if not token_path or not os.path.exists(token_path):
+        return result("auth_missing", "config")
     try:
-        service = get_drive_service(sa_key_path)
+        service = get_drive_service(token_path)
     except (ValueError, KeyError, TypeError):
-        return result("sa_invalid", "config")
+        return result("auth_invalid", "config")
     except Exception as exc:
         _log_failure("config", exc, None, None)
         return result("unexpected", "config")
     if service is None:
-        return result("sa_missing", "config")
+        return result("auth_missing", "config")
     if not folder_id:
         return result("folder_id_missing", "config")
 
@@ -213,12 +238,12 @@ def run_gdrive_probe(sa_key_path: str, folder_id: str) -> ProbeResult:
     return result("ok")
 
 
-def get_drive_service(sa_key_path: str):
-    """None se la Service Account non e' montata a runtime (degradazione graceful,
-    ADR-0018 punto 3)."""
-    if not sa_key_path or not os.path.exists(sa_key_path):
+def get_drive_service(token_path: str):
+    """None se il token OAuth non e' montato a runtime (degradazione graceful,
+    ADR-0018 punto 3). Credenziali utente con refresh token, scope drive.file (ADR-0035)."""
+    if not token_path or not os.path.exists(token_path):
         return None
-    credentials = service_account.Credentials.from_service_account_file(sa_key_path, scopes=DRIVE_SCOPES)
+    credentials = Credentials.from_authorized_user_file(token_path, DRIVE_SCOPES)
     authorized_http = AuthorizedHttp(credentials, http=httplib2.Http(timeout=DRIVE_TIMEOUT_SECONDS))
     return build("drive", "v3", http=authorized_http, cache_discovery=False)
 
