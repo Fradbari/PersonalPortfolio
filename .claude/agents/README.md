@@ -48,7 +48,7 @@ Ordine vincolante: **A prima di B**. C è indipendente funzionalmente, ma **non*
 
 ## Note
 - Attivarli quando parte la fase relativa. Collegati alla skill superpower generale.
-- Fase corrente (2026-10-23): **Blocco C chiuso e mergiato su master (`c18a86c`)** (F10 backup GDrive +
+- Fase corrente (2026-10-23): **Blocco C chiuso, mergiato e pushato (`c18a86c`); ambiente resettato a 0006 vuoto** (F10 backup GDrive +
   F14 storicità chat AI; agenti backup-agent, ai-agent, schema-agent, react-ui-agent). Blocchi A e B chiusi e mergiati su master. F7 ◐ parcheggiata in attesa
   hardware, non bloccante — nessun agente dedicato, gestita da subagent-driven-development generico.
 - Guida funzionale (cosa fa ogni fase per l'utente finale): [../../docs/USER_GUIDE.md](../../docs/USER_GUIDE.md)

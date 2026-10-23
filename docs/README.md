@@ -24,7 +24,7 @@ F0-F6 + F-DEBT completate.
 verificato da desktop, runbook pronto; resta la validazione sul Pi 4 reale. Vedi anche i punti
 aperti P1-P4 in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-**Fase corrente: Blocco C chiuso e mergiato su `master`** (`55e2b79` + T10/fix `c18a86c`, 2026-10-23) (F10 + F14).
+**Fase corrente: Blocco C chiuso, mergiato e pushato** (`55e2b79` + T10/fix `c18a86c`, 2026-10-23) (F10 + F14); **ambiente resettato a `0006` vuoto**, DB `0003` archiviato in `data/archive/`: si ricaricano i dati mese per mese.
 La roadmap F8-F14 è stata pianificata il
 2026-07-21 in tre blocchi — spec
 [2026-07-21-f8-f14-roadmap-design.md](superpowers/specs/2026-07-21-f8-f14-roadmap-design.md), ADR

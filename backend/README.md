@@ -105,7 +105,8 @@ avvio** del backend se la tabella esiste; se manca, `GET /transactions?q=` rispo
 
 F0-F6 + F-DEBT completate. **F7 ◐ parcheggiata in attesa hardware, non bloccante.**
 Blocchi A (F8-F9) e B (F11-F13) chiusi e mergiati su `master` (B = `ab9c360`).
-**Fase corrente: Blocco C chiuso e mergiato su `master`** (F10
-backup GDrive + F14 storicità chat AI; `55e2b79` + T10/fix `c18a86c`); `phase` `"14"`, 347 test
+**Fase corrente: Blocco C chiuso, mergiato e pushato; ambiente resettato a `0006` vuoto**
+(F10 backup GDrive + F14 storicità chat AI; `55e2b79` + T10/fix `c18a86c`; DB `0003` archiviato in
+`data/archive/portfolio-0003-20261023.db`); `phase` `"14"`, 347 test
 verdi, `alembic heads` = `0006`.
 Dettagli: [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).

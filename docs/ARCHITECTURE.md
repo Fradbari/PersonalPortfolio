@@ -536,29 +536,54 @@ Da incollare a start di una nuova sessione Claude. Tenuto corto di proposito (ri
 
 ```
 Progetto "Personal Portfolio" (finanza personale, Docker). Leggi CLAUDE.md = fonte di verità.
-Fase corrente: BLOCCO C CHIUSO E MERGIATO SU master. Codice di C su master da 55e2b79 (2026-10-21);
-T10 + fix della review finale mergiati con c18a86c (2026-10-23, --no-ff, branch blocco-c-t10): bump
-phase "14" / 0.1.0-phase14, docs (SECURITY, USER_GUIDE, ARCHITECTURE), fix I1/I2 e M1-M4/M6-M8 (M5
-parcheggiato = debito 8). 347 test backend verdi, `alembic heads` = 0006, gate arm64 GO
-sull'immagine finale. master NON pushato: verificare con `git log origin/master..master`. Review
-finale: Opus 5.5 (claude-opus-5-5).
+Fase corrente: BLOCCO C CHIUSO, MERGIATO E PUSHATO; AMBIENTE RESETTATO A 0006 VUOTO.
+Codice di C su master da 55e2b79; T10 + fix della review finale con c18a86c (2026-10-23, --no-ff);
+origin/master allineato. phase "14" / 0.1.0-phase14, 347 test backend verdi, `alembic heads` = 0006,
+gate arm64 GO. Review finale Opus 5.5: 0 Critical, fix applicati, M5 parcheggiato (debito 8).
 
-PRIMO PASSO: leggere "STATO PER RIPRESA" in cima a .superpowers/sdd/progress.md (ledger locale,
-gitignored). Poi:
-1. Push su origin e rebuild del container SOLO con ok esplicito dell'utente (backup preventivo del DB
-   reale, vedi avviso sotto).
-2. ADR separato per il rimedio Drive (Shared Drive o OAuth utente; CP2 ha provato `quota_exceeded`):
-   spec e ADR propri, modifica F4. Non implementarlo senza ADR.
-3. Debiti aperti (sezione "Debito tecnico aperto"): post-B (a11y dialog, TypeError rete, Dashboard)
-   e post-C (D4 logging con logger googleapiclient/httplib2 >= WARNING, TODO vite, replica Metabase
-   dopo cancellazione chat, id sessione riusato).
-4. F7 Raspberry riprende solo all'arrivo dell'hardware.
+STATO DELL'AMBIENTE (reset del 2026-10-23, su ok esplicito dell'utente):
+- Container pp-backend e pp-metabase ricostruiti con `docker compose build --no-cache && up -d`.
+  DB applicativo NUOVO e VUOTO a 0006: 0 transazioni, 0 conti, 0 categorie, 0 category_map,
+  0 settings (valgono i default: backup_retention 12, backup_on_startup false, tema di default),
+  0 chat; tabelle chat e `transactions_fts` + 3 trigger presenti. La replica
+  `replica/portfolio_replica.db` NON esiste: nasce al primo import o restore, quindi la fonte dati
+  di Metabase è vuota/in errore finché non c'è un import. `metabase-data/` (dashboard) NON toccato.
+- Il DB precedente (rev 0003: 514 transazioni, 3 conti, 20 categorie, 6 settings) è archiviato in
+  `data/archive/portfolio-0003-20261023.db` (copia con sqlite backup API, integrity_check ok,
+  gitignored). NON cancellarlo e NON migrarlo: i dati si ricaricano da zero.
+- I backup già presenti in `backups/` (3 coppie .db/.xlsx: 2026-07-16, 2026-08-27, 2026-09-03) e quelli
+  su Drive sono intatti. Sono schema vecchio: un restore li porta a head (ADR-0034) e SOVRASCRIVE il
+  DB: non usarli per sbaglio.
 
-AVVISO DB REALE: data/portfolio.db è a 0003 (il container pp-backend in esecuzione è a phase 9,
-immagine pre-merge). Il codice su master è già a 0006: il primo avvio di un container ricostruito
-da master porterà il DB reale a 0006 (CMD = alembic upgrade head). NON fare `docker compose
-build`/`up --build` su master prima di un backup preventivo del DB e dell'ok dell'utente.
-backup_on_startup nel DB reale = false, backup_retention = 3 (letti 2026-10-21).
+PROSSIMI PASSI, in quest'ordine:
+(a) CARICAMENTO DATI mese per mese, a cura dell'utente. Flusso: export My Finance .xlsx del mese →
+    pagina `/import` (o `POST /import/my-finance`, campo `file`); leggono solo le schede Spese ed
+    Entrate, Bonifici ignorata. Il DB parte SENZA categorie né category_map: le categorie
+    del primo import finiranno TUTTE in coda pending → risolverle da `/categorie-pending` (assegna a
+    una categoria canonica nuova o esistente; il backfill aggiorna le transazioni già importate e le
+    importazioni future riconoscono il nome) PRIMA del mese successivo. Conti nuovi: accettati
+    as-is, nessuna risoluzione. Storico dal master sheet (una tantum, dry-run poi commit) solo se
+    l'utente lo vuole.
+    Controlli dopo OGNI mese (la risposta riporta `imported`, `skipped_duplicates`,
+    `skipped_invalid_rows`, `pending_categories`):
+    1. `imported` = righe attese del mese (Spese + Entrate dell'export, senza Bonifici);
+    2. `skipped_duplicates` = 0 su mese nuovo; > 0 solo se il file si sovrappone a mesi già caricati;
+    3. `skipped_invalid_rows` spiegato (righe vuote in coda sono normali), altrimenti indagare;
+    4. `pending_categories` risolte prima di proseguire (`GET /categories/pending` vuoto);
+    5. idempotenza: ricaricare lo stesso file dà `imported` = 0 (dedup su data, importo, categoria,
+       conto, tipo; mai su commento/tag);
+    6. totale entrate/uscite del mese in `/` e in `/transazioni` = totali dell'export; nessun conto
+       inatteso in `/conti`;
+    7. conteggio `transactions` nel DB cresce esattamente di `imported` (lettura RO, mai scrivere).
+    Consigliato un backup manuale (`/backup-restore` → "Backup ora") dopo ogni mese verificato.
+(b) ADR SEPARATO per il rimedio Drive (Shared Drive o OAuth utente): il probe reale ha dato
+    `quota_exceeded` (una Service Account non scrive in un Drive personale). Spec e ADR propri;
+    modifica F4. Non implementarlo senza ADR.
+(c) F7 Raspberry arm64: ◐ PARCHEGGIATA in attesa hardware (Pi 4 4GB), runbook docs/RASPBERRY-PI.md e
+    punti aperti P1-P4. Debiti aperti: sezioni "Debito tecnico aperto" di questo file.
+VERIFICHE LASCIATE ALL'UTENTE (richiedono .env/secrets, che l'agente non legge): probe Drive da
+`/backup-restore` (atteso `quota_exceeded` finché non c'è l'ADR) e domanda reale a Gemini da
+`/assistente-ai` sul DB popolato.
 
 Vincoli dell'ambiente:
 - .env e secrets/ sono esclusi dalla content policy aziendale per l'agente: mai leggerli, mai
@@ -580,7 +605,7 @@ Trappole ancora valide:
 - Git Bash/MSYS: `MSYS_NO_PATHCONV=1` coi comandi `docker run -e VAR=/path`; in un processo Python
   nativo Windows usare il prefisso inline `DB_PATH="$DB" comando`, non `export`.
 - Verifiche SOLO su DB scratch (copia via sqlite backup API o DB vuoto in temp), mai su
-  data/portfolio.db. Polling su /health, non un singolo tentativo (arm64 sotto QEMU è lento).
+  data/portfolio.db (DB vivo, da quando l'utente ricarica i dati). Polling su /health, non un singolo tentativo (arm64 sotto QEMU è lento).
 - /health restituisce `phase` ma non `version`: la versione (0.1.0-phaseNN) sta in /openapi.json.
 - Rimedio Drive per la SA senza quota (Shared Drive o OAuth utente) = ADR SEPARATO dopo C: non
   implementarlo senza ADR, non modificare F4 per aggirarlo.
