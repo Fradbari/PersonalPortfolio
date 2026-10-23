@@ -8,7 +8,7 @@ import dataclasses
 import logging
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -61,6 +61,11 @@ _POST_LOCAL_FAILURE_MESSAGE = (
 )
 
 
+_RETENTION_FAILURE_PREFIX = (
+    "Backup caricato su Drive, ma la rotazione dei vecchi backup su Drive è fallita. "
+)
+
+
 def _record_last_backup(
     trigger: str,
     *,
@@ -71,7 +76,8 @@ def _record_last_backup(
 ) -> None:
     global _last_backup
     entry = {
-        "at": datetime.now().isoformat(timespec="seconds"),
+        # UTC con offset esplicito: il browser lo converte nell'ora locale dell'utente.
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "trigger": trigger,
         "local_ok": local_ok,
         "drive_uploaded": drive_uploaded,
@@ -125,6 +131,9 @@ def _drive_and_retention(result, drive: dict) -> dict:
     backup_retention, _source = get_effective("backup_retention")
 
     drive_deleted: list[str] = []
+    # Stage reale dell'operazione Drive in corso (stessi nomi di drive.py: classify_drive_error
+    # tratta il 404 come cartella mancante solo in "cleanup"/"write").
+    stage = "config"
     try:
         # Ordine dei controlli (coerente con run_gdrive_probe): prima la SA, poi il
         # folder id. Con folder id vuoto nessun upload (fix G2, rettifica ADR-0031):
@@ -142,15 +151,26 @@ def _drive_and_retention(result, drive: dict) -> dict:
             drive["outcome"] = "folder_id_missing"
             drive["error"] = outcome_message("folder_id_missing")
         else:
+            stage = "write"
             upload_file(service, result.db_path, settings.gdrive_backup_folder_id)
             upload_file(service, result.xlsx_path, settings.gdrive_backup_folder_id)
             drive["uploaded"] = True
+            stage = "cleanup"  # rotazione: list + delete, come la pulizia orfani del probe
             drive_deleted = apply_drive_retention(service, settings.gdrive_backup_folder_id, backup_retention)
     except Exception as exc:  # SA malformata/rete/permessi Drive: best-effort (ADR-0004/ADR-0018)
-        outcome, status, _reason = classify_drive_error(exc, "write")
+        if stage == "config" and isinstance(exc, (ValueError, KeyError, TypeError)):
+            outcome, status = "sa_invalid", None  # come run_gdrive_probe: chiave non parsabile
+        else:
+            outcome, status, _reason = classify_drive_error(exc, stage)
         drive["outcome"] = outcome
-        drive["error"] = outcome_message(outcome)
-        logger.warning(redact(f"Backup Drive fallito (non bloccante): {outcome} {type(exc).__name__} status={status}"))
+        message = outcome_message(outcome)
+        if drive["uploaded"]:
+            # Upload riuscito, fallita solo la rotazione: il messaggio non deve contraddire "caricato".
+            message = redact(_RETENTION_FAILURE_PREFIX + message)
+        drive["error"] = message
+        logger.warning(redact(
+            f"Backup Drive fallito (non bloccante): stage={stage} {outcome} {type(exc).__name__} status={status}"
+        ))
 
     local_deleted = apply_local_retention(settings.backup_dir, backup_retention)
 
